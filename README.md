@@ -27,14 +27,12 @@ python3 manual_trading.py
 python3 start_auto_trading.py
 python3 real_auto_trader.py
 # As mentioned in your README
+####
 nohup python3 real_auto_trader.py > output.log 2>&1 &
 tail -f output.log
-
-# View any errors
 tail -f error.log
-
-# Check if bot is running
 ps aux | grep real_auto_trader
+###
 ```
 
 ./stop_bot.sh

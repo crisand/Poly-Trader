@@ -216,14 +216,30 @@ class RealAutoTrader:
                 token_id=token_id
             )
             
-            if book_data and "bids" in book_data and "asks" in book_data:
-                # Check if there are actual bids and asks
-                bids = book_data.get("bids", [])
-                asks = book_data.get("asks", [])
+            if book_data:
+                # Handle different response formats
+                if hasattr(book_data, 'bids') and hasattr(book_data, 'asks'):
+                    # OrderBookSummary object
+                    bids = book_data.bids if book_data.bids else []
+                    asks = book_data.asks if book_data.asks else []
+                elif isinstance(book_data, dict):
+                    # Dictionary response
+                    bids = book_data.get("bids", [])
+                    asks = book_data.get("asks", [])
+                else:
+                    return False
                 
+                # Check if there are actual bids and asks
                 if len(bids) > 0 and len(asks) > 0:
                     return True
                     
+        except PolyApiException as e:
+            if "404" in str(e) or "No orderbook exists" in str(e):
+                # This is expected for inactive markets
+                pass
+            else:
+                print(f"⚠️ Orderbook API error for {token_id}: {str(e)}")
+            return False
         except Exception as e:
             print(f"⚠️ Orderbook check failed for {token_id}: {str(e)}")
             return False
