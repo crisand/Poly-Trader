@@ -262,7 +262,7 @@ class RealPolymarketTrader:
             return None
 
     def execute_real_trade(self, opportunity: Dict[str, Any]) -> bool:
-        """Execute a real trade on Polymarket"""
+        """Execute a real trade on Polymarket with Cloudflare protection handling"""
         if not self.clob_client:
             print("❌ Polymarket client not available")
             return False
@@ -295,6 +295,10 @@ class RealPolymarketTrader:
             # Determine the correct side for the API
             api_side = BUY if side == "YES" else SELL
             
+            # Add delay to avoid rate limiting
+            print("⏳ Waiting to avoid rate limits...")
+            time.sleep(3)
+            
             # Create market order arguments
             order_args = MarketOrderArgs(
                 token_id=token_id,
@@ -303,9 +307,14 @@ class RealPolymarketTrader:
             )
             
             # Create the market order
+            print("📝 Creating market order...")
             signed_order = self.clob_client.create_market_order(order_args)
             
+            # Add another delay before submitting
+            time.sleep(2)
+            
             # Submit the order as FOK (Fill-Or-Kill)
+            print("🚀 Submitting order...")
             response = self.clob_client.post_order(signed_order, OrderType.FOK)
             
             if response and response.get("success"):
@@ -329,7 +338,17 @@ class RealPolymarketTrader:
                 return False
                 
         except Exception as e:
-            print(f"❌ Error executing real trade: {e}")
+            error_str = str(e)
+            if "403" in error_str and "Cloudflare" in error_str:
+                print(f"🛡️  Blocked by Cloudflare security. This is common for automated trading.")
+                print(f"💡 Suggestions:")
+                print(f"   1. Try running from a different IP address")
+                print(f"   2. Use a VPN or proxy service")
+                print(f"   3. Add longer delays between requests")
+                print(f"   4. Contact Polymarket support for API access")
+            else:
+                print(f"❌ Error executing real trade: {e}")
+            
             self.failed_trades += 1
             return False
 
@@ -446,6 +465,9 @@ class RealPolymarketTrader:
             return False
         
         try:
+            # Add small delay to avoid rate limiting
+            time.sleep(0.5)
+            
             # Try to get the last trade price - if this works, the market is tradeable
             price_data = self.clob_client.get_last_trade_price(token_id)
             if price_data and "price" in price_data:
@@ -466,6 +488,9 @@ class RealPolymarketTrader:
             return None
         
         try:
+            # Add small delay to avoid rate limiting
+            time.sleep(0.3)
+            
             # Try to get the current price
             price_data = self.clob_client.get_last_trade_price(token_id)
             if price_data and "price" in price_data:
