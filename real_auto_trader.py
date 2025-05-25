@@ -95,22 +95,17 @@ class RealAutoTrader:
     def setup_clob_client(self):
         """Setup CLOB client with advanced configuration"""
         try:
-            # Create API credentials
-            self.creds = ApiCreds(
-                api_key=os.getenv("POLYMARKET_API_KEY", ""),
-                api_secret=os.getenv("POLYMARKET_API_SECRET", ""),
-                api_passphrase=os.getenv("POLYMARKET_API_PASSPHRASE", "")
-            )
-            
-            # Initialize client with custom configuration
+            # Initialize client with basic configuration as per documentation
             self.client = ClobClient(
                 host="https://clob.polymarket.com",
-                chain_id=POLYGON,
-                private_key=self.private_key,
-                creds=self.creds,
-                signature_type=2,
-                funder=self.wallet_address
+                key=self.private_key,
+                chain_id=POLYGON
             )
+            
+            # Set API credentials if available
+            api_key = os.getenv("POLYMARKET_API_KEY", "")
+            if api_key:
+                self.client.set_api_creds(self.client.create_or_derive_api_creds())
             
             print("✅ CLOB client initialized successfully")
             

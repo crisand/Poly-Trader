@@ -24,7 +24,7 @@ source venv/bin/activate
 ./start_autonomous_trading.sh
 python3 place_real_trades.py
 python3 manual_trading.py
-python3 start_auto_trading.py
+nohup python3 start_auto_trading.py
 ```
 
 ### Installation
