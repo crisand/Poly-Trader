@@ -52,7 +52,7 @@ MIN_BET_SIZE = 1.0
 TRADING_INTERVAL = 120  # 2 minutes for maximum profit
 MAX_DAILY_TRADES = 200
 MIN_EDGE_THRESHOLD = 0.08  # Lower threshold for more trades
-CLOUDFLARE_BYPASS_DELAY = 30  # Delay between requests
+CLOUDFLARE_BYPASS_DELAY = 45  # Increased initial delay
 
 class RealAutoTrader:
     def __init__(self):
@@ -133,14 +133,14 @@ class RealAutoTrader:
 
     def cloudflare_safe_request(self, func, *args, **kwargs):
         """Execute function with Cloudflare bypass techniques"""
-        max_retries = 5
+        max_retries = 7
         base_delay = self.cloudflare_delay
         
         for attempt in range(max_retries):
             try:
                 # Progressive delay to avoid rate limiting
                 if attempt > 0:
-                    delay = base_delay * (2 ** attempt) + random.uniform(5, 15)
+                    delay = base_delay * (2 ** attempt) + random.uniform(10, 25)
                     print(f"⏳ Cloudflare bypass delay: {delay:.1f}s (attempt {attempt + 1})")
                     time.sleep(delay)
                 
@@ -149,7 +149,7 @@ class RealAutoTrader:
                 
                 # If successful, reduce delay for next time
                 if attempt == 0:
-                    self.cloudflare_delay = max(10, self.cloudflare_delay * 0.9)
+                    self.cloudflare_delay = max(15, self.cloudflare_delay * 0.9)
                 
                 return result
                 
@@ -157,7 +157,7 @@ class RealAutoTrader:
                 if "403" in str(e) or "blocked" in str(e).lower():
                     print(f"🚫 Cloudflare block detected (attempt {attempt + 1})")
                     # Increase delay for future requests
-                    self.cloudflare_delay = min(120, self.cloudflare_delay * 1.5)
+                    self.cloudflare_delay = min(180, self.cloudflare_delay * 1.75)
                     
                     if attempt == max_retries - 1:
                         print("❌ All Cloudflare bypass attempts failed")

@@ -26,6 +26,8 @@ python3 place_real_trades.py
 python3 manual_trading.py
 python3 start_auto_trading.py
 python3 real_auto_trader.py
+./start_bot.sh
+./stop_bot.sh
 # As mentioned in your README
 ####
 nohup python3 real_auto_trader.py > output.log 2>&1 &
@@ -35,9 +37,31 @@ ps aux | grep real_auto_trader
 ###
 ```
 
-./stop_bot.sh
+### Start Bot
 
-nohup python3 real_auto_trader.py > output.log
+python3 real_auto_trader.py
+
+# Background with logging
+
+nohup python3 real_auto_trader.py > output.log 2>&1 &
+
+# Using the improved script
+
+./run_bot.sh
+
+### Stop Bot
+
+# Foreground (you can see output)
+
+python3 real_auto_trader.py
+
+# Background with logging
+
+nohup python3 real_auto_trader.py > output.log 2>&1 &
+
+# Using the improved script
+
+./run_bot.sh
 
 ### Installation
 
