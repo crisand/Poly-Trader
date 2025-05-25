@@ -352,10 +352,8 @@ class RealAutoTrader:
             # Create market order
             order_args = MarketOrderArgs(
                 token_id=token_id,
-                price=opportunity["current_price"],
-                size=bet_size,
+                amount=bet_size,
                 side=BUY,  # Always buying the outcome we predict
-                funder=self.wallet_address
             )
             
             # Execute with Cloudflare bypass
