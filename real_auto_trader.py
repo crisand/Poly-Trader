@@ -25,7 +25,8 @@ try:
     from py_clob_client.order_builder.constants import BUY, SELL
     from py_clob_client.exceptions import PolyApiException
     from py_clob_client.clob_types import (
-        ApiCreds, OrderArgs, OrderType, MarketOrderArgs
+        ApiCreds, OrderArgs, OrderType, MarketOrderArgs,
+        BalanceAllowanceParams, AssetType
     )
 except ImportError:
     print("❌ py-clob-client not installed. Installing...")
@@ -35,7 +36,8 @@ except ImportError:
     from py_clob_client.order_builder.constants import BUY, SELL
     from py_clob_client.exceptions import PolyApiException
     from py_clob_client.clob_types import (
-        ApiCreds, OrderArgs, OrderType, MarketOrderArgs
+        ApiCreds, OrderArgs, OrderType, MarketOrderArgs,
+        BalanceAllowanceParams, AssetType
     )
 
 # Load environment variables
@@ -136,20 +138,28 @@ class RealAutoTrader:
         deposited_balance = 0.0
         try:
             if self.client:
-                # Get balance from Polymarket using CLOB client
-                balance_response = self.cloudflare_safe_request(
-                    self.client.get_balance
+                # Get USDC balance from Polymarket using get_balance_allowance
+                balance_params = BalanceAllowanceParams(
+                    asset_type=AssetType.COLLATERAL
                 )
                 
-                if balance_response and isinstance(balance_response, dict):
-                    # Extract USDC balance from response
-                    deposited_balance = float(balance_response.get("USDC", 0))
-                elif hasattr(balance_response, 'USDC'):
-                    deposited_balance = float(balance_response.USDC)
+                balance_response = self.cloudflare_safe_request(
+                    self.client.get_balance_allowance,
+                    balance_params
+                )
+                
+                if balance_response:
+                    # Extract balance from response
+                    if hasattr(balance_response, 'balance'):
+                        deposited_balance = float(balance_response.balance) / 10**6  # Convert from wei
+                    elif isinstance(balance_response, dict) and 'balance' in balance_response:
+                        deposited_balance = float(balance_response['balance']) / 10**6
+                    elif isinstance(balance_response, dict) and 'USDC' in balance_response:
+                        deposited_balance = float(balance_response['USDC'])
                     
         except Exception as e:
             print(f"⚠️ Could not fetch Polymarket balance: {e}")
-            # Fallback: we know we deposited $75 earlier
+            # Fallback: we know we deposited funds earlier
             deposited_balance = 75.0
         
         total_balance = wallet_balance_usdc + deposited_balance
@@ -450,6 +460,13 @@ class RealAutoTrader:
                 print(f"❌ Bet size too small: ${bet_size:.2f}")
                 return False
             
+            # Check actual available balance before trading
+            actual_balance = self.get_usdc_balance()
+            if bet_size > actual_balance:
+                print(f"❌ Insufficient balance for trade: ${bet_size:.2f}")
+                print(f"   Available balance: ${actual_balance:.2f}")
+                return False
+            
             print(f"\n🚀 EXECUTING REAL TRADE")
             print(f"Market: {question[:50]}...")
             print(f"Side: {side}")
@@ -485,7 +502,7 @@ class RealAutoTrader:
                     # Update tracking
                     self.trades_today += 1
                     self.successful_trades += 1
-                    self.current_balance -= bet_size
+                    self.current_balance = actual_balance - bet_size  # Update with actual balance
                     
                     # Store position
                     position_id = f"{token_id}_{int(time.time())}"
@@ -520,8 +537,9 @@ class RealAutoTrader:
                 print(f"   Market: {question[:50]}...")
                 print(f"   This market may not be actively traded")
             elif "insufficient" in str(e).lower() or "balance" in str(e).lower():
+                actual_balance = self.get_usdc_balance()
                 print(f"💰 Insufficient balance for trade: ${bet_size:.2f}")
-                print(f"   Current balance: ${self.current_balance:.2f}")
+                print(f"   Available balance: ${actual_balance:.2f}")
             else:
                 print(f"❌ API Error: {e}")
             return False
