@@ -126,19 +126,19 @@ def place_market_order(
         Optional transaction hash if successful
     """
     try:
+        print(f"Attempting to place {side.upper()} order for {size} shares...")
+        
         # Step 1: Create the order structure
         order = {
-            "order": {
-                "token_id": token_id,
-                "side": side.upper(),
-                "type": "MARKET",
-                "size": str(size),
-                "time_in_force": "FOK"  # Fill-or-Kill
-            }
+            "token_id": token_id,
+            "side": side.upper(),
+            "type": "MARKET",
+            "size": str(size),
+            "time_in_force": "GTC"  # Good Till Cancelled (more flexible than FOK)
         }
         
-        # Step 2: Get nonce, expiration, and order signature from the API
-        signature_url = f"{CLOB_API_URL}/orders/signature"
+        # Step 2: Try to place the order directly first
+        order_url = f"{CLOB_API_URL}/orders"
         
         headers = {
             "Content-Type": "application/json",
@@ -146,84 +146,90 @@ def place_market_order(
             "User-Agent": "Mozilla/5.0"
         }
         
-        response = requests.post(signature_url, headers=headers, json=order)
+        print("Submitting order to Polymarket...")
+        order_response = requests.post(order_url, headers=headers, json=order)
         
-        if response.status_code != 200:
-            print(f"Failed to get order signature: {response.status_code}")
-            print(response.text)
-            return None
-        
-        signature_data = response.json()
-        
-        # Extract data for the signed order
-        nonce = signature_data.get("nonce")
-        expiration = signature_data.get("expiration")
-        signature = signature_data.get("signature")
-        
-        if not all([nonce, expiration, signature]):
-            print("Missing signature data")
-            return None
-        
-        # Step 3: Create the final order with signature
-        signed_order = {
-            "token_id": token_id,
-            "side": side.upper(),
-            "type": "MARKET",
-            "size": str(size),
-            "time_in_force": "FOK",
-            "nonce": nonce,
-            "expiration": expiration,
-            "signature": signature,
-            "wallet": wallet_address
-        }
-        
-        # Step 4: Submit the order
-        order_url = f"{CLOB_API_URL}/orders"
-        
-        order_response = requests.post(order_url, headers=headers, json=signed_order)
-        
-        if order_response.status_code != 200:
-            print(f"Failed to place order: {order_response.status_code}")
-            print(order_response.text)
-            return None
-        
-        order_result = order_response.json()
-        
-        # Step 5: Check if we need to settle the order
-        if "tx_data" in order_result:
-            tx_data = order_result["tx_data"]
+        if order_response.status_code == 200:
+            order_result = order_response.json()
+            print("✅ Order submitted successfully!")
             
-            # Build transaction
-            tx = {
-                'from': wallet_address,
-                'to': tx_data.get("to"),
-                'data': tx_data.get("data"),
-                'value': w3.to_wei(0, 'ether'),  # No ETH value
-                'gas': 500000,  # Gas limit
-                'gasPrice': w3.to_wei('50', 'gwei'),
-                'nonce': w3.eth.get_transaction_count(wallet_address),
+            # Check if we need to settle the order on-chain
+            if "tx_data" in order_result:
+                print("Order requires on-chain settlement...")
+                tx_data = order_result["tx_data"]
+                
+                # Build transaction
+                tx = {
+                    'from': wallet_address,
+                    'to': tx_data.get("to"),
+                    'data': tx_data.get("data"),
+                    'value': w3.to_wei(0, 'ether'),
+                    'gas': 500000,
+                    'gasPrice': w3.to_wei('50', 'gwei'),
+                    'nonce': w3.eth.get_transaction_count(wallet_address),
+                }
+                
+                # Sign and send transaction
+                signed_tx = w3.eth.account.sign_transaction(tx, private_key)
+                tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+                
+                print(f"Settlement transaction sent! Hash: {tx_hash.hex()}")
+                print(f"View on PolygonScan: https://polygonscan.com/tx/{tx_hash.hex()}")
+                
+                # Wait for confirmation
+                print("Waiting for transaction confirmation...")
+                tx_receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
+                
+                if tx_receipt['status'] == 1:
+                    print("✅ Transaction confirmed!")
+                    return tx_hash.hex()
+                else:
+                    print("❌ Transaction failed.")
+                    return None
+            else:
+                print("✅ Order completed off-chain!")
+                return "success"
+        
+        # If direct order fails, try with signature
+        elif order_response.status_code == 400 or order_response.status_code == 401:
+            print("Direct order failed, trying with signature...")
+            
+            # Get signature for the order
+            signature_url = f"{CLOB_API_URL}/orders/signature"
+            
+            signature_response = requests.post(signature_url, headers=headers, json={"order": order})
+            
+            if signature_response.status_code != 200:
+                print(f"Failed to get order signature: {signature_response.status_code}")
+                print(signature_response.text)
+                return None
+            
+            signature_data = signature_response.json()
+            
+            # Add signature data to order
+            signed_order = {
+                **order,
+                "nonce": signature_data.get("nonce"),
+                "expiration": signature_data.get("expiration"),
+                "signature": signature_data.get("signature"),
+                "wallet": wallet_address
             }
             
-            # Sign and send transaction
-            signed_tx = w3.eth.account.sign_transaction(tx, private_key)
-            tx_hash = w3.eth.send_raw_transaction(signed_tx.raw_transaction)
+            # Submit signed order
+            final_response = requests.post(order_url, headers=headers, json=signed_order)
             
-            print(f"Settlement transaction sent! Hash: {tx_hash.hex()}")
-            print(f"View on PolygonScan: https://polygonscan.com/tx/{tx_hash.hex()}")
-            
-            # Wait for transaction to be mined
-            print("Waiting for transaction to be confirmed...")
-            tx_receipt = w3.eth.wait_for_transaction_receipt(tx_hash)
-            
-            if tx_receipt['status'] == 1:
-                print("✅ Transaction confirmed!")
-                return tx_hash.hex()
+            if final_response.status_code == 200:
+                print("✅ Signed order submitted successfully!")
+                return "success"
             else:
-                print("❌ Transaction failed. Please check PolygonScan for details.")
+                print(f"Failed to submit signed order: {final_response.status_code}")
+                print(final_response.text)
                 return None
+        
         else:
-            print("Order placed successfully!")
-            return "success"
+            print(f"Order submission failed: {order_response.status_code}")
+            print(order_response.text)
+            return None
             
     except Exception as e:
         print(f"Error placing order: {str(e)}")
@@ -290,17 +296,17 @@ def find_best_market() -> Tuple[Optional[Dict[str, Any]], Optional[str], Optiona
         print("No active markets found")
         return None, None, None
     
-    # Find the market with the most liquid order book
+    print(f"Checking {len(all_markets)} markets for trading opportunities...")
+    
+    # Strategy 1: Try to find markets with active order books
     best_market = None
     best_liquidity = 0
     best_outcome = None
     best_token_id = None
     
-    print(f"Checking liquidity for {len(all_markets)} markets...")
-    
-    for i, market in enumerate(all_markets):
-        if i % 10 == 0:  # Progress indicator
-            print(f"Checked {i}/{len(all_markets)} markets...")
+    # Check first 20 markets for order books (to avoid rate limiting)
+    for i, market in enumerate(all_markets[:20]):
+        print(f"Checking market {i+1}/20: {market.get('question', 'Unknown')[:50]}...")
             
         token_ids = parse_token_ids(market)
         outcomes = parse_outcomes(market)
@@ -321,46 +327,80 @@ def find_best_market() -> Tuple[Optional[Dict[str, Any]], Optional[str], Optiona
             if not bids or not asks:
                 continue
             
-            # Calculate liquidity score based on depth and tightness of spread
+            # Calculate liquidity score
             try:
                 best_bid = float(bids[0]["price"])
                 best_ask = float(asks[0]["price"])
                 
-                # Calculate bid-ask spread
                 spread = best_ask - best_bid
-                
-                # Calculate total volume in order book (up to 3 levels)
                 bid_volume = sum(float(bid["size"]) for bid in bids[:3])
                 ask_volume = sum(float(ask["size"]) for ask in asks[:3])
                 
-                # Liquidity score: higher volume and tighter spread = better
                 if spread > 0:
                     liquidity_score = (bid_volume + ask_volume) / spread
                 else:
-                    liquidity_score = bid_volume + ask_volume  # Perfect spread
+                    liquidity_score = bid_volume + ask_volume
                 
-                # Update best market if this one has better liquidity
                 if liquidity_score > best_liquidity:
                     best_liquidity = liquidity_score
                     best_market = market
                     best_outcome = outcomes[j]
                     best_token_id = token_id
                     
-                    print(f"New best market found: {market.get('question', 'Unknown')[:50]}...")
+                    print(f"✅ Found liquid market: {market.get('question', 'Unknown')[:50]}...")
                     print(f"Liquidity score: {liquidity_score:.2f}")
                     
-            except (IndexError, ValueError, KeyError) as e:
+            except (IndexError, ValueError, KeyError):
                 continue
     
+    # If we found a liquid market, use it
     if best_market:
-        print(f"\n✅ Best market selected:")
+        print(f"\n✅ Best market selected (with order book):")
         print(f"Market: {best_market.get('question')}")
         print(f"Outcome: {best_outcome}")
-        print(f"Final liquidity score: {best_liquidity:.2f}")
+        print(f"Liquidity score: {best_liquidity:.2f}")
         return best_market, best_outcome, best_token_id
-    else:
-        print("No suitable market found with active order books")
+    
+    # Strategy 2: Fallback - use market with highest volume
+    print("\nNo markets with active order books found. Using volume-based selection...")
+    
+    # Sort markets by volume (highest first)
+    volume_markets = []
+    for market in all_markets:
+        try:
+            volume = float(market.get("volume", 0))
+            if volume > 0:
+                volume_markets.append((market, volume))
+        except:
+            continue
+    
+    if not volume_markets:
+        print("No markets with volume data found")
         return None, None, None
+    
+    # Sort by volume
+    volume_markets.sort(key=lambda x: x[1], reverse=True)
+    
+    # Try the top 5 highest volume markets
+    for market, volume in volume_markets[:5]:
+        token_ids = parse_token_ids(market)
+        outcomes = parse_outcomes(market)
+        
+        if token_ids and outcomes and len(token_ids) == len(outcomes):
+            # Use the first outcome (usually "Yes")
+            selected_market = market
+            selected_outcome = outcomes[0]
+            selected_token_id = token_ids[0]
+            
+            print(f"\n✅ Selected high-volume market:")
+            print(f"Market: {selected_market.get('question')}")
+            print(f"Volume: ${volume:,.2f}")
+            print(f"Outcome: {selected_outcome}")
+            
+            return selected_market, selected_outcome, selected_token_id
+    
+    print("No suitable markets found")
+    return None, None, None
 
 def place_bet_on_best_market(wallet_address: str, private_key: str, w3: Web3) -> None:
     """
