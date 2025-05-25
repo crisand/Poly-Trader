@@ -175,5 +175,8 @@ Siraj Raval
 **Note:** This system is for educational purposes. Always do your own research before trading.
 
 # This script automatically finds the best market and places bets
+
 python3 approve_usdc.py
 python3 place_programmatic_bet.py
+
+source venv/bin/activate && python3 check_usdc.py
