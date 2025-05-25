@@ -136,13 +136,41 @@ class RealPolymarketTrader:
                 
                 print(f"✅ Loaded {len(discovered_markets)} markets from file")
                 
-                # Filter for high-volume, active markets
+                # Filter for high-volume, active markets with orderbooks
                 filtered_markets = []
-                for market in discovered_markets[:20]:  # Take top 20 markets
-                    if market.get("active", False) and float(market.get("volume", 0)) > 1000000:  # $1M+ volume
-                        filtered_markets.append(market)
+                print("🔍 Checking markets for active orderbooks...")
                 
-                print(f"✅ Filtered to {len(filtered_markets)} high-volume markets")
+                for i, market in enumerate(discovered_markets[:30]):  # Check top 30 markets
+                    if market.get("active", False) and float(market.get("volume", 0)) > 100000:  # $100K+ volume
+                        # Parse tokens from JSON string
+                        tokens_str = market.get("tokens", "[]")
+                        try:
+                            if isinstance(tokens_str, str):
+                                tokens = json.loads(tokens_str)
+                            else:
+                                tokens = tokens_str
+                        except:
+                            tokens = []
+                        
+                        if len(tokens) >= 2:
+                            # Check if at least one token has an orderbook
+                            yes_token_id = tokens[0]
+                            if self.validate_market_orderbook(yes_token_id):
+                                # Update the market with parsed tokens
+                                market["tokens"] = tokens
+                                filtered_markets.append(market)
+                                print(f"✅ Market {i+1}: {market.get('question', 'Unknown')[:50]}... - Has orderbook")
+                            else:
+                                print(f"⚠️  Market {i+1}: {market.get('question', 'Unknown')[:50]}... - No orderbook")
+                        else:
+                            print(f"⚠️  Market {i+1}: {market.get('question', 'Unknown')[:50]}... - No tokens")
+                    
+                    # Don't check too many at once to avoid rate limits
+                    if i > 0 and i % 5 == 0:
+                        print(f"📊 Checked {i+1} markets so far...")
+                        time.sleep(1)  # Brief pause to avoid rate limits
+                
+                print(f"✅ Found {len(filtered_markets)} markets with active orderbooks")
                 return filtered_markets
                 
             except FileNotFoundError:
@@ -165,36 +193,22 @@ class RealPolymarketTrader:
             
             print(f"🔍 Analyzing market: {question[:50]}...")
             
-            # Try to get current market data from CLOB client
-            try:
-                # Get current price from the CLOB client
-                market_data = self.clob_client.get_market(condition_id)
-                if not market_data:
-                    print(f"❌ Could not fetch market data for {condition_id}")
-                    return None
-                
-                # Extract token information
-                tokens = market_data.get("tokens", [])
-                if len(tokens) < 2:
-                    print(f"❌ Insufficient tokens for market {condition_id}")
-                    return None
-                
-                yes_token = tokens[0]
-                no_token = tokens[1]
-                yes_token_id = yes_token.get("token_id")
-                
-                # Get current price
-                try:
-                    price_response = self.clob_client.get_last_trade_price(yes_token_id)
-                    current_price = float(price_response.get("price", 0.5))
-                except:
-                    current_price = 0.5  # Default if price unavailable
-                    
-            except Exception as e:
-                print(f"❌ Error fetching market data: {e}")
-                # Use fallback analysis with simulated price
-                current_price = round(random.uniform(0.2, 0.8), 3)
-                yes_token_id = market.get("tokens", ["", ""])[0] if market.get("tokens") else "simulated_token"
+            # Get token IDs from the market (should already be parsed)
+            tokens = market.get("tokens", [])
+            if len(tokens) < 2:
+                print(f"❌ Insufficient tokens for market {condition_id}")
+                return None
+            
+            yes_token_id = tokens[0]
+            no_token_id = tokens[1]
+            
+            # Get real current price from the API
+            current_price = self.get_market_price(yes_token_id)
+            if current_price is None:
+                print(f"❌ Could not get current price for {yes_token_id}")
+                return None
+            
+            print(f"📊 Current YES price: ${current_price:.3f}")
             
             # AI analysis of market sentiment
             bullish_keywords = ["will", "win", "succeed", "pass", "approve", "increase", "rise", "championship", "finals"]
@@ -218,9 +232,15 @@ class RealPolymarketTrader:
             else:
                 edge = (current_price - ai_probability) / ai_probability
                 side = "NO"
-                token_id = market.get("tokens", ["", ""])[1] if market.get("tokens") else "simulated_token"
+                token_id = no_token_id
+                # Validate the NO token has a price too
+                no_price = self.get_market_price(token_id)
+                if no_price is None:
+                    print(f"⚠️  No price available for NO token {token_id}")
+                    return None
             
             if edge >= MIN_EDGE_THRESHOLD:
+                print(f"✅ Found opportunity: {side} with {edge:.1%} edge")
                 return {
                     "market": market,
                     "condition_id": condition_id,
@@ -232,6 +252,8 @@ class RealPolymarketTrader:
                     "question": question,
                     "volume": volume
                 }
+            else:
+                print(f"⚠️  Edge too small: {edge:.1%} < {MIN_EDGE_THRESHOLD:.1%}")
             
             return None
             
@@ -417,6 +439,42 @@ class RealPolymarketTrader:
             except Exception as e:
                 print(f"❌ Error in real trading loop: {e}")
                 time.sleep(60)
+
+    def validate_market_orderbook(self, token_id: str) -> bool:
+        """Check if a market has an active orderbook by trying to get price"""
+        if not self.clob_client:
+            return False
+        
+        try:
+            # Try to get the last trade price - if this works, the market is tradeable
+            price_data = self.clob_client.get_last_trade_price(token_id)
+            if price_data and "price" in price_data:
+                price = float(price_data["price"])
+                # Valid price should be between 0.01 and 0.99
+                if 0.01 <= price <= 0.99:
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            # If we can't get price, market is not tradeable
+            return False
+
+    def get_market_price(self, token_id: str) -> Optional[float]:
+        """Get current market price for a token"""
+        if not self.clob_client:
+            return None
+        
+        try:
+            # Try to get the current price
+            price_data = self.clob_client.get_last_trade_price(token_id)
+            if price_data and "price" in price_data:
+                return float(price_data["price"])
+            
+            return None
+            
+        except Exception as e:
+            return None
 
 def main():
     """Main function to run real trading bot"""
