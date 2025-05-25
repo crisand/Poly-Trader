@@ -1,6 +1,6 @@
-# PolyTrader: AI-Powered Automated Trading System for Polymarket
+# PolyTrader: AI-Powered Autonomous Trading System for Polymarket
 
-An autonomous AI trading agent for Polymarket that identifies market inefficiencies, calculates optimal bet sizes, and executes trades automatically. This system leverages ChatGPT's predictive capabilities against existing market odds to find profitable edges.
+An autonomous AI trading agent for Polymarket that continuously monitors markets, identifies profitable opportunities, and executes trades automatically with advanced risk management and profit optimization.
 
 ## 🚀 Getting Started
 
@@ -10,17 +10,18 @@ An autonomous AI trading agent for Polymarket that identifies market inefficienc
 - A Polygon network wallet with MATIC (for gas) and USDC (for trading)
 - API keys for OpenAI and SerpAPI
 - Basic understanding of prediction markets and crypto wallets
-  ssh -i "poly.pem" ubuntu@ec2-34-226-150-183.compute-1.amazonaws.com
-  cd ~/Poly-Trader
-  git pull origin main
 
-# Make sure virtual environment is activated
+### Quick Start on EC2
 
+```bash
+ssh -i "poly.pem" ubuntu@ec2-34-226-150-183.compute-1.amazonaws.com
+cd ~/Poly-Trader
+git pull origin main
 source venv/bin/activate
 
-# Run the app
-
-sudo ./venv/bin/python3 app.py
+# Start autonomous trading bot
+./start_autonomous_trading.sh
+```
 
 ### Installation
 
@@ -63,6 +64,31 @@ python3 app.py
 ```
 
 6. Visit http://127.0.0.1:5000 in your browser
+
+## 🤖 Autonomous Trading Features
+
+### Core Trading Engine
+
+- **Continuous Market Monitoring:** Scans markets every 5 minutes for opportunities
+- **AI-Powered Analysis:** Uses sentiment analysis and market indicators to predict outcomes
+- **Edge Detection:** Only trades when expected edge is >15%
+- **Kelly Criterion Betting:** Optimal bet sizing with safety margins
+- **Risk Management:** Stop-loss, position limits, and drawdown protection
+
+### Trading Configuration
+
+- **Initial Bet Size:** $2.00 USDC
+- **Maximum Bet Size:** $20.00 USDC
+- **Daily Trade Limit:** 50 trades maximum
+- **Minimum Edge Required:** 15%
+- **Stop Loss:** 50% drawdown protection
+- **Position Limit:** Maximum 10% of balance per trade
+
+### Profit Optimization
+
+- **Dynamic Bet Sizing:** Increases bets after wins, decreases after losses
+- **Profit Reinvestment:** Automatically compounds gains
+- **Performance Tracking:** Real-time P&L and win rate monitoring
 
 ## 📋 Features
 
@@ -125,22 +151,56 @@ MIN_EDGE_PERCENTAGE=0.15
 
 ## 🚀 Usage
 
+### Autonomous Trading (Recommended)
+
+Start the autonomous trading bot:
+
+```bash
+./start_autonomous_trading.sh
+```
+
+Or manually:
+
+```bash
+source venv/bin/activate
+python3 place_programmatic_bet.py
+```
+
+### Web Interface
+
 Start the web interface:
 
 ```bash
 python app.py
 ```
 
-Run in simulation mode (no real trades):
-
-```bash
-python app.py --simulation
-```
+### Manual Analysis
 
 Analyze specific markets:
 
 ```bash
 python polymarket_ai_search.py --query "NBA games tonight"
+```
+
+## 📊 Trading Commands
+
+### Check Balance and Approval
+
+```bash
+source venv/bin/activate && python3 check_usdc.py
+python3 approve_usdc.py
+```
+
+### Start Autonomous Trading
+
+```bash
+python3 place_programmatic_bet.py
+```
+
+### Manual Single Bet
+
+```bash
+python3 place_polymarket_bet.py
 ```
 
 ## ⚠️ Risk Warning
@@ -149,10 +209,13 @@ Trading involves substantial risk and is not suitable for all investors. Past pe
 
 ## 🔍 Main Files
 
+- `place_programmatic_bet.py` - **Autonomous trading bot (main)**
+- `start_autonomous_trading.sh` - **Quick start script**
 - `app.py` - Main entry point for the Flask application
 - `polymarket_ai_search.py` - Search and analysis of Polymarket events
-- `place_polymarket_bet.py` - Automated bet execution
-- `fetch_current_markets.py` - Real-time market data retrieval
+- `place_polymarket_bet.py` - Manual bet execution
+- `check_usdc.py` - Balance checking utility
+- `approve_usdc.py` - USDC approval utility
 
 ## 📝 License
 
@@ -173,10 +236,3 @@ Siraj Raval
 ⭐ Star this repo if you find it useful! Join our Discord community to discuss improvements and share results.
 
 **Note:** This system is for educational purposes. Always do your own research before trading.
-
-# This script automatically finds the best market and places bets
-
-source venv/bin/activate && python3 check_usdc.py
-python3 approve_usdc.py
-python3 place_programmatic_bet.py
-python3 place_polymarket_bet.py

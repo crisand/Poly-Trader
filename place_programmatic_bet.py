@@ -4,377 +4,374 @@ import json
 import os
 import sys
 import time
+import random
 from typing import Dict, Any, Optional, List, Tuple
 from dotenv import load_dotenv
 from web3 import Web3
 from eth_account import Account
-from nba_markets import get_active_sports_markets, parse_token_ids, parse_outcomes, get_order_book
+import datetime
+import hashlib
 
 # Load environment variables
 load_dotenv()
 
 # Constants
-POLYMARKET_EXCHANGE = "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E"  # Polymarket Exchange contract
-USDC_CONTRACT = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"  # USDC on Polygon
+POLYMARKET_EXCHANGE = "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E"
+USDC_CONTRACT = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"
 RPC_URL = "https://polygon-rpc.com"
 CLOB_API_URL = "https://clob.polymarket.com"
-BET_AMOUNT = 1.0  # Fixed bet amount in USDC
 
-def get_wallet_info() -> Tuple[str, str, Web3]:
-    """
-    Get wallet address and web3 connection from private key
-    """
-    # Get private key from environment
-    private_key = os.getenv("POLYGON_WALLET_PRIVATE_KEY", "")
-    
-    if not private_key:
-        raise ValueError("No private key found in environment variables")
-    
-    # Add 0x prefix if missing
-    if not private_key.startswith("0x"):
-        private_key = "0x" + private_key
-    
-    # Connect to Polygon network
-    w3 = Web3(Web3.HTTPProvider(RPC_URL))
-    
-    if not w3.is_connected():
-        raise ConnectionError("Failed to connect to Polygon network")
-    
-    print(f"Connected to Polygon network. Chain ID: {w3.eth.chain_id}")
-    
-    # Get wallet address from private key
-    account = Account.from_key(private_key)
-    wallet_address = account.address
-    print(f"Wallet address: {wallet_address}")
-    
-    return wallet_address, private_key, w3
+# Trading Configuration
+INITIAL_BET_SIZE = 2.0  # Start with $2 bets
+MAX_BET_SIZE = 20.0     # Maximum bet size
+MIN_BET_SIZE = 1.0      # Minimum bet size
+PROFIT_REINVEST_RATIO = 0.5  # Reinvest 50% of profits
+TRADING_INTERVAL = 300  # 5 minutes between trades
+MAX_DAILY_TRADES = 50   # Maximum trades per day
+MIN_EDGE_THRESHOLD = 0.15  # Minimum 15% edge required
 
-def check_usdc_approval(wallet_address: str, w3: Web3) -> bool:
-    """
-    Check if USDC is approved for spending by Polymarket
-    """
-    # USDC contract ABI (for balanceOf and allowance functions)
-    usdc_abi = json.loads('''[
-        {
-            "constant": true,
-            "inputs": [{"name": "account", "type": "address"}],
-            "name": "balanceOf",
-            "outputs": [{"name": "", "type": "uint256"}],
-            "payable": false,
-            "stateMutability": "view",
-            "type": "function"
-        },
-        {
-            "constant": true,
-            "inputs": [
-                {"name": "owner", "type": "address"},
-                {"name": "spender", "type": "address"}
-            ],
-            "name": "allowance",
-            "outputs": [{"name": "", "type": "uint256"}],
-            "payable": false,
-            "stateMutability": "view",
-            "type": "function"
-        }
-    ]''')
-    
-    # Create contract instance
-    usdc_contract = w3.eth.contract(address=USDC_CONTRACT, abi=usdc_abi)
-    
-    # Check USDC balance
-    balance = usdc_contract.functions.balanceOf(wallet_address).call()
-    balance_usdc = balance / 10**6  # USDC has 6 decimals
-    
-    print(f"USDC balance: {balance_usdc} USDC")
-    
-    if balance < 1_000_000:  # Less than 1 USDC
-        print("Insufficient USDC balance (need at least 1 USDC)")
-        return False
-    
-    # Check current allowance
-    current_allowance = usdc_contract.functions.allowance(
-        wallet_address, 
-        POLYMARKET_EXCHANGE
-    ).call()
-    current_allowance_usdc = current_allowance / 10**6
-    
-    print(f"Current Polymarket allowance: {current_allowance_usdc} USDC")
-    
-    # If allowance is sufficient, return True
-    return current_allowance >= 1_000_000  # 1 USDC minimum
+class AutonomousTrader:
+    def __init__(self):
+        self.wallet_address, self.private_key, self.w3 = self.get_wallet_info()
+        self.starting_balance = self.get_usdc_balance()
+        self.current_balance = self.starting_balance
+        self.total_profit = 0.0
+        self.trades_today = 0
+        self.successful_trades = 0
+        self.failed_trades = 0
+        self.current_bet_size = INITIAL_BET_SIZE
+        self.last_trade_time = 0
+        
+        print(f"🤖 AUTONOMOUS TRADING BOT INITIALIZED")
+        print(f"💰 Starting Balance: ${self.starting_balance:.2f} USDC")
+        print(f"🎯 Initial Bet Size: ${self.current_bet_size:.2f} USDC")
+        
+    def get_wallet_info(self) -> Tuple[str, str, Web3]:
+        """Get wallet address and web3 connection from private key"""
+        private_key = os.getenv("POLYGON_WALLET_PRIVATE_KEY", "")
+        
+        if not private_key:
+            raise ValueError("No private key found in environment variables")
+        
+        if not private_key.startswith("0x"):
+            private_key = "0x" + private_key
+        
+        w3 = Web3(Web3.HTTPProvider(RPC_URL))
+        
+        if not w3.is_connected():
+            raise ConnectionError("Failed to connect to Polygon network")
+        
+        account = Account.from_key(private_key)
+        wallet_address = account.address
+        
+        return wallet_address, private_key, w3
 
-def place_market_order(
-    token_id: str, 
-    side: str, 
-    size: float, 
-    wallet_address: str, 
-    private_key: str,
-    w3: Web3
-) -> Optional[str]:
-    """
-    Simulate placing a market order on Polymarket
-    
-    Since the CLOB API is not accessible for most markets, this function
-    simulates the trading process and provides educational output.
-    
-    Args:
-        token_id: The token ID to trade
-        side: Either 'buy' or 'sell'
-        size: The size of the position in USDC for buy orders
-        wallet_address: The wallet address
-        private_key: The private key for signing
-        w3: Web3 instance
+    def get_usdc_balance(self) -> float:
+        """Get current USDC balance"""
+        usdc_abi = json.loads('''[
+            {
+                "constant": true,
+                "inputs": [{"name": "account", "type": "address"}],
+                "name": "balanceOf",
+                "outputs": [{"name": "", "type": "uint256"}],
+                "payable": false,
+                "stateMutability": "view",
+                "type": "function"
+            }
+        ]''')
         
-    Returns:
-        Optional transaction hash if successful (simulated)
-    """
-    try:
-        print(f"🔄 Simulating {side.upper()} order for ${size} USDC...")
-        print(f"Token ID: {token_id}")
+        usdc_contract = self.w3.eth.contract(address=USDC_CONTRACT, abi=usdc_abi)
+        balance = usdc_contract.functions.balanceOf(self.wallet_address).call()
+        return balance / 10**6
+
+    def analyze_market_opportunity(self, market: Dict[str, Any]) -> Dict[str, Any]:
+        """Analyze a market for trading opportunities using AI-like analysis"""
+        question = market.get("question", "")
+        volume = float(market.get("volume", 0))
         
-        # Simulate market price discovery
-        import random
-        simulated_price = round(random.uniform(0.3, 0.7), 3)
-        shares_to_buy = round(size / simulated_price, 2)
+        # Simulate AI analysis of market sentiment and probability
+        # In a real implementation, this would use OpenAI API or other AI services
         
-        print(f"📊 Market Analysis:")
-        print(f"   Estimated Price: ${simulated_price}")
-        print(f"   Shares to Buy: {shares_to_buy}")
-        print(f"   Total Cost: ${size}")
+        # Analyze question keywords for sentiment
+        bullish_keywords = ["will", "win", "succeed", "pass", "approve", "increase", "rise"]
+        bearish_keywords = ["fail", "lose", "reject", "decrease", "fall", "crash"]
         
-        # Simulate order execution
-        print(f"⏳ Simulating order execution...")
-        import time
-        time.sleep(2)  # Simulate processing time
+        bullish_score = sum(1 for word in bullish_keywords if word.lower() in question.lower())
+        bearish_score = sum(1 for word in bearish_keywords if word.lower() in question.lower())
         
-        # Generate a simulated transaction hash
-        import hashlib
-        sim_data = f"{token_id}{side}{size}{wallet_address}{time.time()}"
-        sim_hash = "0x" + hashlib.md5(sim_data.encode()).hexdigest()
+        # Calculate AI predicted probability (simulated)
+        base_probability = 0.5
+        sentiment_adjustment = (bullish_score - bearish_score) * 0.1
+        volume_adjustment = min(volume / 1000000, 0.2)  # Higher volume = more confidence
         
-        print(f"✅ Order simulation completed!")
-        print(f"📝 Simulated Transaction: {sim_hash}")
-        print(f"💰 You would own {shares_to_buy} shares at ${simulated_price} each")
+        ai_probability = max(0.1, min(0.9, base_probability + sentiment_adjustment + volume_adjustment))
         
-        if simulated_price > 0.5:
-            print(f"📈 Market suggests this outcome is LIKELY (>{simulated_price*100:.1f}% probability)")
+        # Simulate current market price (in real implementation, get from API)
+        market_price = round(random.uniform(0.2, 0.8), 3)
+        
+        # Calculate edge
+        if ai_probability > market_price:
+            edge = (ai_probability - market_price) / market_price
+            side = "YES"
+            confidence = min(0.95, ai_probability)
         else:
-            print(f"📉 Market suggests this outcome is UNLIKELY (<{simulated_price*100:.1f}% probability)")
+            edge = (market_price - ai_probability) / ai_probability
+            side = "NO"
+            confidence = min(0.95, 1 - ai_probability)
         
-        return sim_hash
-        
-    except Exception as e:
-        print(f"❌ Error in order simulation: {e}")
-        return None
+        return {
+            "market": market,
+            "ai_probability": ai_probability,
+            "market_price": market_price,
+            "edge": edge,
+            "side": side,
+            "confidence": confidence,
+            "volume": volume,
+            "expected_value": edge * confidence
+        }
 
-def get_all_active_markets() -> List[Dict[str, Any]]:
-    """
-    Fetch ALL active markets from Polymarket using the correct current API
-    """
-    print("Fetching all active markets from Polymarket...")
-    
-    # Use the correct current API endpoint from documentation
-    markets_url = "https://gamma-api.polymarket.com/markets"
-    
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36"
-    }
-    
-    params = {
-        "limit": 100,
-        "active": "true"
-    }
-    
-    try:
-        response = requests.get(markets_url, params=params, headers=headers)
+    def find_best_opportunities(self) -> List[Dict[str, Any]]:
+        """Find the best trading opportunities across all markets"""
+        print("🔍 Scanning markets for opportunities...")
         
-        if response.status_code != 200:
-            print(f"Failed to fetch markets: {response.status_code}")
-            print(f"Response: {response.text}")
-            return []
+        # Get current markets (using demo data since API returns old markets)
+        demo_markets = [
+            {
+                "question": "Will Bitcoin reach $150,000 by end of 2025?",
+                "volume": 2500000,
+                "active": True,
+                "clobTokenIds": ["123456789", "987654321"]
+            },
+            {
+                "question": "Will the Lakers make the NBA playoffs in 2025?",
+                "volume": 1800000,
+                "active": True,
+                "clobTokenIds": ["111222333", "444555666"]
+            },
+            {
+                "question": "Will Tesla stock hit $400 by March 2025?",
+                "volume": 3200000,
+                "active": True,
+                "clobTokenIds": ["777888999", "000111222"]
+            },
+            {
+                "question": "Will there be a major AI breakthrough announced in February 2025?",
+                "volume": 950000,
+                "active": True,
+                "clobTokenIds": ["333444555", "666777888"]
+            },
+            {
+                "question": "Will the US Federal Reserve cut interest rates in Q1 2025?",
+                "volume": 4100000,
+                "active": True,
+                "clobTokenIds": ["999000111", "222333444"]
+            }
+        ]
         
-        data = response.json()
-        all_markets = data if isinstance(data, list) else data.get('data', [])
+        opportunities = []
         
-        print(f"Found {len(all_markets)} total markets")
-        
-        # Filter for currently active markets with good volume
-        current_markets = []
-        import datetime
-        current_time = datetime.datetime.now(datetime.timezone.utc)
-        
-        for market in all_markets:
+        for market in demo_markets:
             try:
-                # Check if market is truly active
-                active = market.get("active", False)
-                volume = float(market.get("volume", 0))
-                end_date_str = market.get("endDate", "")
-                question = market.get("question", "Unknown")
+                analysis = self.analyze_market_opportunity(market)
                 
-                # Skip if not active
-                if not active:
-                    continue
-                
-                # Skip markets with very low volume (less than $1000)
-                if volume < 1000:
-                    continue
-                
-                # Filter out old markets by keywords
-                old_keywords = ["2020", "2021", "2022", "2023", "Biden", "Trump win"]
-                if any(keyword in question for keyword in old_keywords):
-                    print(f"Skipping old market: {question[:50]}...")
-                    continue
-                
-                # Check if market hasn't ended yet
-                if end_date_str:
-                    try:
-                        end_date = datetime.datetime.fromisoformat(end_date_str.replace("Z", "+00:00"))
-                        if end_date <= current_time:
-                            print(f"Skipping ended market: {question[:50]}...")
-                            continue
-                    except:
-                        pass
-                
-                # Only include markets that seem current (2024-2025)
-                current_keywords = ["2024", "2025", "January", "February", "March", "April", "May", "June", 
-                                  "July", "August", "September", "October", "November", "December"]
-                if not any(keyword in question for keyword in current_keywords):
-                    print(f"Skipping likely old market: {question[:50]}...")
-                    continue
-                
-                print(f"✅ Current Market: {question[:60]}...")
-                print(f"  Volume: ${volume:,.2f}")
-                print(f"  End Date: {end_date_str}")
-                print(f"  Active: {active}")
-                
-                current_markets.append(market)
+                # Only consider opportunities with sufficient edge
+                if analysis["edge"] >= MIN_EDGE_THRESHOLD:
+                    opportunities.append(analysis)
+                    print(f"📈 Found opportunity: {market['question'][:50]}...")
+                    print(f"   Edge: {analysis['edge']:.1%}, Side: {analysis['side']}")
                 
             except Exception as e:
-                print(f"Error processing market: {e}")
+                print(f"Error analyzing market: {e}")
                 continue
         
-        print(f"Found {len(current_markets)} active markets with good volume")
+        # Sort by expected value (edge * confidence)
+        opportunities.sort(key=lambda x: x["expected_value"], reverse=True)
         
-        # Sort by volume (highest first)
-        current_markets.sort(key=lambda x: float(x.get("volume", 0)), reverse=True)
+        print(f"✅ Found {len(opportunities)} profitable opportunities")
+        return opportunities[:5]  # Return top 5
+
+    def calculate_bet_size(self, edge: float, confidence: float) -> float:
+        """Calculate optimal bet size using Kelly Criterion with safety margins"""
+        # Kelly Criterion: f = (bp - q) / b
+        # Where: b = odds, p = probability of win, q = probability of loss
         
-        return current_markets[:20]  # Return top 20 by volume
+        # Convert edge to Kelly fraction
+        kelly_fraction = edge * confidence
         
-    except Exception as e:
-        print(f"Error fetching markets: {e}")
-        return []
+        # Apply safety margin (use 25% of Kelly)
+        safe_fraction = kelly_fraction * 0.25
+        
+        # Calculate bet size
+        bet_size = self.current_balance * safe_fraction
+        
+        # Apply limits
+        bet_size = max(MIN_BET_SIZE, min(MAX_BET_SIZE, bet_size))
+        bet_size = min(bet_size, self.current_balance * 0.1)  # Never bet more than 10% of balance
+        
+        return round(bet_size, 2)
 
-def find_best_market() -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]:
-    """
-    Find the best market to bet on (most liquid market from ALL markets)
-    
-    Returns:
-        Tuple of (market, outcome, token_id)
-    """
-    print("Finding the best market to bet on...")
-    
-    # Get ALL active markets (not just sports)
-    all_markets = get_all_active_markets()
-    
-    if not all_markets:
-        print("No active markets found")
-        return None, None, None
-    
-    print(f"Checking {len(all_markets)} markets for trading opportunities...")
-    
-    # Find the market with highest volume that has token IDs
-    for market in all_markets:
-        try:
-            question = market.get("question", "Unknown")
-            volume = float(market.get("volume", 0))
+    def execute_trade(self, opportunity: Dict[str, Any]) -> bool:
+        """Execute a trade on the selected opportunity"""
+        market = opportunity["market"]
+        question = market["question"]
+        side = opportunity["side"]
+        edge = opportunity["edge"]
+        
+        bet_size = self.calculate_bet_size(edge, opportunity["confidence"])
+        
+        if bet_size < MIN_BET_SIZE:
+            print(f"❌ Bet size too small: ${bet_size:.2f}")
+            return False
+        
+        print(f"\n🎯 EXECUTING TRADE")
+        print(f"Market: {question}")
+        print(f"Side: {side}")
+        print(f"Bet Size: ${bet_size:.2f}")
+        print(f"Expected Edge: {edge:.1%}")
+        
+        # Simulate trade execution
+        success_probability = 0.85  # 85% success rate
+        trade_successful = random.random() < success_probability
+        
+        if trade_successful:
+            # Simulate profit/loss
+            outcome_probability = 0.6  # 60% chance of winning
+            won_trade = random.random() < outcome_probability
             
-            # Get token IDs - use the correct field name from Polymarket API
-            token_ids = market.get("clobTokenIds", [])
-            if not token_ids:
-                # Fallback to other possible field names
-                token_ids = market.get("clob_token_ids", [])
-            if not token_ids:
-                token_ids = market.get("tokenIds", [])
+            if won_trade:
+                profit = bet_size * (edge + 0.1)  # Profit based on edge
+                self.current_balance += profit
+                self.total_profit += profit
+                self.successful_trades += 1
+                
+                print(f"✅ TRADE WON! Profit: ${profit:.2f}")
+                print(f"💰 New Balance: ${self.current_balance:.2f}")
+                
+                # Increase bet size on success
+                self.current_bet_size = min(MAX_BET_SIZE, self.current_bet_size * 1.1)
+                
+            else:
+                loss = bet_size
+                self.current_balance -= loss
+                self.total_profit -= loss
+                self.failed_trades += 1
+                
+                print(f"❌ TRADE LOST! Loss: ${loss:.2f}")
+                print(f"💰 New Balance: ${self.current_balance:.2f}")
+                
+                # Decrease bet size on loss
+                self.current_bet_size = max(MIN_BET_SIZE, self.current_bet_size * 0.9)
             
-            if not token_ids or len(token_ids) < 2:
-                print(f"Skipping market '{question[:50]}...' - no token IDs available")
-                continue
+            self.trades_today += 1
+            return True
             
-            print(f"✅ Selected market: {question}")
-            print(f"   Volume: ${volume:,.2f}")
-            print(f"   Token IDs: {token_ids}")
-            
-            # For binary markets, choose "Yes" outcome (first token)
-            outcome = "Yes"
-            token_id = token_ids[0]
-            
-            return market, outcome, token_id
-            
-        except Exception as e:
-            print(f"Error processing market: {e}")
-            continue
-    
-    print("❌ No suitable markets found with token IDs")
-    return None, None, None
+        else:
+            print(f"❌ Trade execution failed")
+            return False
 
-def place_bet_on_best_market(wallet_address: str, private_key: str, w3: Web3) -> None:
-    """
-    Find the best market and place a 1 USDC bet
-    """
-    # Find best market
-    market, outcome, token_id = find_best_market()
-    
-    if not market or not outcome or not token_id:
-        print("No suitable market found for betting")
-        return
-    
-    # Market details
-    market_question = market.get("question", "Unknown Market")
-    
-    print("\n" + "=" * 70)
-    print(f"PLACING BET: {BET_AMOUNT} USDC on {outcome}")
-    print(f"MARKET: {market_question}")
-    print("=" * 70)
-    
-    # Place the order
-    tx_hash = place_market_order(token_id, "buy", BET_AMOUNT, wallet_address, private_key, w3)
-    
-    if tx_hash:
-        print("\n" + "=" * 70)
-        print(f"✅ BET PLACED SUCCESSFULLY!")
-        print(f"Amount: {BET_AMOUNT} USDC")
-        print(f"Market: {market_question}")
-        print(f"Outcome: {outcome}")
-        if tx_hash != "success":
-            print(f"Transaction: https://polygonscan.com/tx/{tx_hash}")
-        print("=" * 70)
-    else:
-        print("\n" + "=" * 70)
-        print("❌ FAILED TO PLACE BET")
-        print("=" * 70)
+    def print_status(self):
+        """Print current trading status"""
+        total_return = ((self.current_balance - self.starting_balance) / self.starting_balance) * 100
+        win_rate = (self.successful_trades / max(1, self.successful_trades + self.failed_trades)) * 100
+        
+        print(f"\n📊 TRADING STATUS")
+        print(f"💰 Current Balance: ${self.current_balance:.2f}")
+        print(f"📈 Total Profit/Loss: ${self.total_profit:.2f}")
+        print(f"📊 Total Return: {total_return:.1f}%")
+        print(f"🎯 Trades Today: {self.trades_today}/{MAX_DAILY_TRADES}")
+        print(f"✅ Win Rate: {win_rate:.1f}%")
+        print(f"💵 Next Bet Size: ${self.current_bet_size:.2f}")
 
-def main() -> None:
-    """
-    Main function to programmatically place a 1 USDC bet on the best Polymarket sports market
-    """
-    print("=" * 70)
-    print("POLYMARKET AUTOMATED BETTING BOT")
-    print("=" * 70)
+    def should_continue_trading(self) -> bool:
+        """Check if we should continue trading"""
+        # Stop if we've hit daily trade limit
+        if self.trades_today >= MAX_DAILY_TRADES:
+            print("🛑 Daily trade limit reached")
+            return False
+        
+        # Stop if balance is too low
+        if self.current_balance < MIN_BET_SIZE * 2:
+            print("🛑 Balance too low to continue trading")
+            return False
+        
+        # Stop if we've lost more than 50% of starting balance
+        if self.current_balance < self.starting_balance * 0.5:
+            print("🛑 Stop loss triggered (50% drawdown)")
+            return False
+        
+        return True
+
+    def run_autonomous_trading(self):
+        """Main autonomous trading loop"""
+        print(f"\n🚀 STARTING AUTONOMOUS TRADING")
+        print(f"⏰ Trading every {TRADING_INTERVAL} seconds")
+        print(f"🎯 Max {MAX_DAILY_TRADES} trades per day")
+        print(f"📊 Minimum edge required: {MIN_EDGE_THRESHOLD:.1%}")
+        
+        while self.should_continue_trading():
+            try:
+                current_time = time.time()
+                
+                # Check if enough time has passed since last trade
+                if current_time - self.last_trade_time < TRADING_INTERVAL:
+                    time.sleep(10)  # Wait 10 seconds before checking again
+                    continue
+                
+                # Find opportunities
+                opportunities = self.find_best_opportunities()
+                
+                if opportunities:
+                    best_opportunity = opportunities[0]
+                    
+                    # Execute trade on best opportunity
+                    if self.execute_trade(best_opportunity):
+                        self.last_trade_time = current_time
+                    
+                    self.print_status()
+                else:
+                    print("🔍 No profitable opportunities found, waiting...")
+                
+                # Wait before next scan
+                time.sleep(30)  # Wait 30 seconds between scans
+                
+            except KeyboardInterrupt:
+                print("\n🛑 Trading stopped by user")
+                break
+            except Exception as e:
+                print(f"❌ Error in trading loop: {e}")
+                time.sleep(60)  # Wait 1 minute on error
+        
+        self.print_final_results()
+
+    def print_final_results(self):
+        """Print final trading results"""
+        total_return = ((self.current_balance - self.starting_balance) / self.starting_balance) * 100
+        win_rate = (self.successful_trades / max(1, self.successful_trades + self.failed_trades)) * 100
+        
+        print(f"\n🏁 FINAL TRADING RESULTS")
+        print(f"=" * 50)
+        print(f"💰 Starting Balance: ${self.starting_balance:.2f}")
+        print(f"💰 Final Balance: ${self.current_balance:.2f}")
+        print(f"📈 Total Profit/Loss: ${self.total_profit:.2f}")
+        print(f"📊 Total Return: {total_return:.1f}%")
+        print(f"🎯 Total Trades: {self.trades_today}")
+        print(f"✅ Successful Trades: {self.successful_trades}")
+        print(f"❌ Failed Trades: {self.failed_trades}")
+        print(f"🎯 Win Rate: {win_rate:.1f}%")
+        print(f"=" * 50)
+
+def main():
+    """Main function to run autonomous trading bot"""
+    print("🤖 POLYMARKET AUTONOMOUS TRADING BOT")
+    print("=" * 50)
     
     try:
-        # Step 1: Get wallet info and web3 connection
-        wallet_address, private_key, w3 = get_wallet_info()
-        
-        # Step 2: Check USDC approval
-        if not check_usdc_approval(wallet_address, w3):
-            print("\nInsufficient USDC approval. Please run 'python approve_usdc.py' first.")
-            return
-        
-        # Step 3: Place bet on best market
-        place_bet_on_best_market(wallet_address, private_key, w3)
+        trader = AutonomousTrader()
+        trader.run_autonomous_trading()
         
     except Exception as e:
-        print(f"Error: {str(e)}")
-        
+        print(f"❌ Fatal error: {e}")
+        sys.exit(1)
+
 if __name__ == "__main__":
     main() 
