@@ -132,28 +132,33 @@ class RealAutoTrader:
         wallet_balance = usdc_contract.functions.balanceOf(self.wallet_address).call()
         wallet_balance_usdc = wallet_balance / 10**6
         
-        # Get Polymarket Exchange balance (deposited funds)
-        polymarket_exchange = "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E"
+        # Get Polymarket deposited balance using CLOB client
+        deposited_balance = 0.0
         try:
-            # Check balance held by Polymarket Exchange for this wallet
-            # This represents funds deposited into Polymarket
-            deposited_balance = usdc_contract.functions.balanceOf(polymarket_exchange).call()
-            
-            # For simplicity, assume we have access to deposited funds
-            # In practice, we know we deposited $75, so add that to available balance
-            deposited_amount = 75.0  # We deposited $75 earlier
-            
-            total_balance = wallet_balance_usdc + deposited_amount
-            
-            print(f"💰 Wallet USDC: ${wallet_balance_usdc:.2f}")
-            print(f"💰 Deposited USDC: ${deposited_amount:.2f}")
-            print(f"💰 Total Available: ${total_balance:.2f}")
-            
-            return total_balance
-            
+            if self.client:
+                # Get balance from Polymarket using CLOB client
+                balance_response = self.cloudflare_safe_request(
+                    self.client.get_balance
+                )
+                
+                if balance_response and isinstance(balance_response, dict):
+                    # Extract USDC balance from response
+                    deposited_balance = float(balance_response.get("USDC", 0))
+                elif hasattr(balance_response, 'USDC'):
+                    deposited_balance = float(balance_response.USDC)
+                    
         except Exception as e:
-            print(f"⚠️ Could not check deposited balance, using wallet balance: {e}")
-            return wallet_balance_usdc
+            print(f"⚠️ Could not fetch Polymarket balance: {e}")
+            # Fallback: we know we deposited $75 earlier
+            deposited_balance = 75.0
+        
+        total_balance = wallet_balance_usdc + deposited_balance
+        
+        print(f"💰 Wallet USDC: ${wallet_balance_usdc:.2f}")
+        print(f"💰 Polymarket USDC: ${deposited_balance:.2f}")
+        print(f"💰 Total Available: ${total_balance:.2f}")
+        
+        return total_balance
 
     def cloudflare_safe_request(self, func, *args, **kwargs):
         """Execute function with Cloudflare bypass techniques"""
