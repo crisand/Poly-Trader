@@ -10,7 +10,14 @@ An autonomous AI trading agent for Polymarket that identifies market inefficienc
 - A Polygon network wallet with MATIC (for gas) and USDC (for trading)
 - API keys for OpenAI and SerpAPI
 - Basic understanding of prediction markets and crypto wallets
+  ssh -i "poly.pem" ubuntu@ec2-34-226-150-183.compute-1.amazonaws.com
+  cd ~/Poly-Trader
+  git pull origin main
+# Make sure virtual environment is activated
+source venv/bin/activate
 
+# Run the app
+python3 app.py
 ### Installation
 
 1. Clone this repository
