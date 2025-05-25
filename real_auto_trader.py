@@ -212,7 +212,7 @@ class RealAutoTrader:
         try:
             # Try to get the orderbook for this token
             book_data = self.cloudflare_safe_request(
-                self.client.get_book,
+                self.client.get_order_book,
                 token_id=token_id
             )
             
@@ -225,10 +225,9 @@ class RealAutoTrader:
                     return True
                     
         except Exception as e:
-            if "404" in str(e) or "No orderbook exists" in str(e):
-                return False
-            print(f"⚠️ Orderbook check failed for {token_id}: {e}")
-        
+            print(f"⚠️ Orderbook check failed for {token_id}: {str(e)}")
+            return False
+            
         return False
 
     def get_market_price(self, token_id: str) -> Optional[float]:
