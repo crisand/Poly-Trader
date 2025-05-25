@@ -232,8 +232,8 @@ def get_all_active_markets() -> List[Dict[str, Any]]:
     """
     print("Fetching all active markets from Polymarket...")
     
-    # Use the correct current API endpoint
-    markets_url = "https://strapi-matic.poly.market/markets"
+    # Use the correct current API endpoint from documentation
+    markets_url = "https://gamma-api.polymarket.com/markets"
     
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36"
@@ -241,8 +241,7 @@ def get_all_active_markets() -> List[Dict[str, Any]]:
     
     params = {
         "limit": 100,
-        "active": "true",
-        "accepting_orders": "true"
+        "active": "true"
     }
     
     try:
@@ -267,13 +266,12 @@ def get_all_active_markets() -> List[Dict[str, Any]]:
             try:
                 # Check if market is truly active
                 active = market.get("active", False)
-                accepting_orders = market.get("accepting_orders", False)
                 volume = float(market.get("volume", 0))
-                end_date_str = market.get("end_date", "")
+                end_date_str = market.get("endDate", "")
                 question = market.get("question", "Unknown")
                 
-                # Skip if not active or not accepting orders
-                if not active or not accepting_orders:
+                # Skip if not active
+                if not active:
                     continue
                 
                 # Skip markets with very low volume (less than $1000)
@@ -292,7 +290,7 @@ def get_all_active_markets() -> List[Dict[str, Any]]:
                 print(f"Active Market: {question[:60]}...")
                 print(f"  Volume: ${volume:,.2f}")
                 print(f"  End Date: {end_date_str}")
-                print(f"  Accepting Orders: {accepting_orders}")
+                print(f"  Active: {active}")
                 
                 current_markets.append(market)
                 
@@ -335,10 +333,11 @@ def find_best_market() -> Tuple[Optional[Dict[str, Any]], Optional[str], Optiona
             question = market.get("question", "Unknown")
             volume = float(market.get("volume", 0))
             
-            # Get token IDs - try different field names based on API structure
-            token_ids = market.get("clob_token_ids", [])
+            # Get token IDs - use the correct field name from Polymarket API
+            token_ids = market.get("clobTokenIds", [])
             if not token_ids:
-                token_ids = market.get("clobTokenIds", [])
+                # Fallback to other possible field names
+                token_ids = market.get("clob_token_ids", [])
             if not token_ids:
                 token_ids = market.get("tokenIds", [])
             
