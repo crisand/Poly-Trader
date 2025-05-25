@@ -21,6 +21,7 @@ source venv/bin/activate
 
 # Start autonomous trading bot
 ./start_autonomous_trading.sh
+python3 place_real_trades.py
 ```
 
 ### Installation

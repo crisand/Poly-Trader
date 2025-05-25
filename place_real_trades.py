@@ -101,15 +101,23 @@ class RealPolymarketTrader:
             self.clob_client = ClobClient(
                 host="https://clob.polymarket.com",
                 chain_id=POLYGON,
-                key=self.private_key,
-                creds=None  # Will create API key if needed
+                key=self.private_key
             )
+            
+            # Set up API credentials (this will create them if they don't exist)
+            try:
+                api_creds = self.clob_client.create_or_derive_api_creds()
+                self.clob_client.set_api_creds(api_creds)
+                print("✅ API credentials set up successfully")
+            except Exception as e:
+                print(f"⚠️  Warning: Could not set up API credentials: {e}")
+                print("📝 Note: You may need to manually create API credentials")
             
             print("✅ Polymarket client initialized successfully")
             
         except Exception as e:
             print(f"❌ Failed to initialize Polymarket client: {e}")
-            print("📝 Note: You may need to create API credentials first")
+            print("📝 Note: Make sure you have the correct private key and network access")
             self.clob_client = None
 
     def get_real_markets(self) -> List[Dict[str, Any]]:
@@ -258,25 +266,28 @@ class RealPolymarketTrader:
             print(f"Token ID: {token_id}")
             print(f"Expected Edge: {edge:.1%}")
             
-            # Create market buy order
-            if side == "YES":
-                order = self.clob_client.create_market_buy_order(
-                    token_id=token_id,
-                    amount=bet_size  # Amount in USDC
-                )
-            else:
-                # For NO bets, we need to handle differently
-                # This is simplified - you may need to adjust based on Polymarket's API
-                order = self.clob_client.create_market_buy_order(
-                    token_id=token_id,
-                    amount=bet_size
-                )
+            # Import the correct types
+            from py_clob_client.clob_types import MarketOrderArgs, OrderType
+            from py_clob_client.order_builder.constants import BUY, SELL
             
-            # Submit the order
-            response = self.clob_client.post_order(order)
+            # Determine the correct side for the API
+            api_side = BUY if side == "YES" else SELL
+            
+            # Create market order arguments
+            order_args = MarketOrderArgs(
+                token_id=token_id,
+                amount=bet_size,  # Amount in USDC for BUY orders, shares for SELL orders
+                side=api_side
+            )
+            
+            # Create the market order
+            signed_order = self.clob_client.create_market_order(order_args)
+            
+            # Submit the order as FOK (Fill-Or-Kill)
+            response = self.clob_client.post_order(signed_order, OrderType.FOK)
             
             if response and response.get("success"):
-                order_id = response.get("orderID")
+                order_id = response.get("orderId")
                 print(f"✅ REAL TRADE EXECUTED!")
                 print(f"Order ID: {order_id}")
                 
@@ -290,7 +301,8 @@ class RealPolymarketTrader:
                 
                 return True
             else:
-                print(f"❌ Trade failed: {response}")
+                error_msg = response.get("errorMsg", "Unknown error") if response else "No response"
+                print(f"❌ Trade failed: {error_msg}")
                 self.failed_trades += 1
                 return False
                 
