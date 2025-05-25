@@ -204,9 +204,40 @@ class RealAutoTrader:
             print(f"❌ Error loading markets: {e}")
             return []
 
-    def get_market_price(self, token_id: str) -> Optional[float]:
-        """Get current market price with Cloudflare bypass"""
+    def validate_orderbook_exists(self, token_id: str) -> bool:
+        """Check if an orderbook exists for the given token"""
         if not self.client:
+            return False
+            
+        try:
+            # Try to get the orderbook for this token
+            book_data = self.cloudflare_safe_request(
+                self.client.get_book,
+                token_id=token_id
+            )
+            
+            if book_data and "bids" in book_data and "asks" in book_data:
+                # Check if there are actual bids and asks
+                bids = book_data.get("bids", [])
+                asks = book_data.get("asks", [])
+                
+                if len(bids) > 0 and len(asks) > 0:
+                    return True
+                    
+        except Exception as e:
+            if "404" in str(e) or "No orderbook exists" in str(e):
+                return False
+            print(f"⚠️ Orderbook check failed for {token_id}: {e}")
+        
+        return False
+
+    def get_market_price(self, token_id: str) -> Optional[float]:
+        """Get current market price with Cloudflare bypass and orderbook validation"""
+        if not self.client:
+            return None
+        
+        # First check if orderbook exists
+        if not self.validate_orderbook_exists(token_id):
             return None
             
         try:
@@ -225,7 +256,7 @@ class RealAutoTrader:
         return None
 
     def analyze_market_for_profit(self, market: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-        """Analyze market for maximum profit potential"""
+        """Analyze market for maximum profit potential with orderbook validation"""
         try:
             condition_id = market.get("condition_id")
             question = market.get("question", "")
@@ -238,12 +269,36 @@ class RealAutoTrader:
             yes_token_id = tokens[0]
             no_token_id = tokens[1]
             
-            # Get current prices
-            yes_price = self.get_market_price(yes_token_id)
-            if yes_price is None:
+            # Validate that both tokens have orderbooks before proceeding
+            print(f"🔍 Validating orderbooks for: {question[:30]}...")
+            
+            yes_has_orderbook = self.validate_orderbook_exists(yes_token_id)
+            no_has_orderbook = self.validate_orderbook_exists(no_token_id)
+            
+            if not yes_has_orderbook and not no_has_orderbook:
+                print(f"⚠️ No orderbooks available for market: {question[:50]}...")
                 return None
             
-            no_price = 1.0 - yes_price  # NO price is complement
+            # Get current prices (only for tokens with orderbooks)
+            yes_price = None
+            no_price = None
+            
+            if yes_has_orderbook:
+                yes_price = self.get_market_price(yes_token_id)
+            
+            if no_has_orderbook:
+                no_price = self.get_market_price(no_token_id)
+            
+            # If we don't have at least one valid price, skip this market
+            if yes_price is None and no_price is None:
+                print(f"⚠️ No valid prices available for market: {question[:50]}...")
+                return None
+            
+            # Calculate complement price if needed
+            if yes_price is not None and no_price is None:
+                no_price = 1.0 - yes_price
+            elif no_price is not None and yes_price is None:
+                yes_price = 1.0 - no_price
             
             # Advanced AI analysis for profit
             profit_keywords = {
@@ -273,38 +328,47 @@ class RealAutoTrader:
             
             ai_probability = max(0.1, min(0.9, base_prob + sentiment_adj + volume_boost))
             
-            # Find best opportunity
-            yes_edge = (ai_probability - yes_price) / yes_price if yes_price > 0 else 0
-            no_edge = ((1 - ai_probability) - no_price) / no_price if no_price > 0 else 0
+            # Find best opportunity (only consider tokens with orderbooks)
+            best_opportunity = None
             
-            if yes_edge > no_edge and yes_edge >= MIN_EDGE_THRESHOLD:
-                return {
-                    "condition_id": condition_id,
-                    "token_id": yes_token_id,
-                    "side": "YES",
-                    "edge": yes_edge,
-                    "current_price": yes_price,
-                    "ai_probability": ai_probability,
-                    "question": question,
-                    "volume": volume,
-                    "confidence": min(volume / 1000000, 1.0)
-                }
-            elif no_edge >= MIN_EDGE_THRESHOLD:
-                return {
-                    "condition_id": condition_id,
-                    "token_id": no_token_id,
-                    "side": "NO",
-                    "edge": no_edge,
-                    "current_price": no_price,
-                    "ai_probability": 1 - ai_probability,
-                    "question": question,
-                    "volume": volume,
-                    "confidence": min(volume / 1000000, 1.0)
-                }
+            if yes_has_orderbook and yes_price is not None:
+                yes_edge = (ai_probability - yes_price) / yes_price if yes_price > 0 else 0
+                if yes_edge >= MIN_EDGE_THRESHOLD:
+                    best_opportunity = {
+                        "condition_id": condition_id,
+                        "token_id": yes_token_id,
+                        "side": "YES",
+                        "edge": yes_edge,
+                        "current_price": yes_price,
+                        "ai_probability": ai_probability,
+                        "question": question,
+                        "volume": volume,
+                        "confidence": min(volume / 1000000, 1.0)
+                    }
             
-            return None
+            if no_has_orderbook and no_price is not None:
+                no_edge = ((1 - ai_probability) - no_price) / no_price if no_price > 0 else 0
+                if no_edge >= MIN_EDGE_THRESHOLD:
+                    no_opportunity = {
+                        "condition_id": condition_id,
+                        "token_id": no_token_id,
+                        "side": "NO",
+                        "edge": no_edge,
+                        "current_price": no_price,
+                        "ai_probability": 1 - ai_probability,
+                        "question": question,
+                        "volume": volume,
+                        "confidence": min(volume / 1000000, 1.0)
+                    }
+                    
+                    # Choose the better opportunity
+                    if best_opportunity is None or no_edge > best_opportunity["edge"]:
+                        best_opportunity = no_opportunity
+            
+            return best_opportunity
             
         except Exception as e:
+            print(f"⚠️ Market analysis error: {e}")
             return None
 
     def calculate_aggressive_bet_size(self, edge: float, confidence: float) -> float:
@@ -407,6 +471,13 @@ class RealAutoTrader:
                 print(f"🚫 Cloudflare blocked trade execution")
                 # Increase delay significantly
                 self.cloudflare_delay = min(180, self.cloudflare_delay * 2)
+            elif "404" in str(e) or "No orderbook exists" in str(e):
+                print(f"⚠️ No orderbook exists for token {token_id}")
+                print(f"   Market: {question[:50]}...")
+                print(f"   This market may not be actively traded")
+            elif "insufficient" in str(e).lower() or "balance" in str(e).lower():
+                print(f"💰 Insufficient balance for trade: ${bet_size:.2f}")
+                print(f"   Current balance: ${self.current_balance:.2f}")
             else:
                 print(f"❌ API Error: {e}")
             return False

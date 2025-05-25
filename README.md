@@ -26,9 +26,11 @@ python3 place_real_trades.py
 python3 manual_trading.py
 python3 start_auto_trading.py
 python3 real_auto_trader.py
+# As mentioned in your README
+nohup python3 real_auto_trader.py > output.log 2>&1 &
 ```
 
-nohup python3 real_auto_trader.py > output.log 2>&1 &
+nohup python3 real_auto_trader.py > output.log
 
 ### Installation
 
