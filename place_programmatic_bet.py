@@ -228,11 +228,12 @@ def place_market_order(
 
 def get_all_active_markets() -> List[Dict[str, Any]]:
     """
-    Fetch ALL active markets from Polymarket (not just sports)
+    Fetch ALL active markets from Polymarket using the correct current API
     """
-    print("Fetching all active markets...")
+    print("Fetching all active markets from Polymarket...")
     
-    markets_url = "https://gamma-api.polymarket.com/markets"
+    # Use the correct current API endpoint
+    markets_url = "https://strapi-matic.poly.market/markets"
     
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36"
@@ -240,7 +241,8 @@ def get_all_active_markets() -> List[Dict[str, Any]]:
     
     params = {
         "limit": 100,
-        "active": True
+        "active": "true",
+        "accepting_orders": "true"
     }
     
     try:
@@ -248,46 +250,62 @@ def get_all_active_markets() -> List[Dict[str, Any]]:
         
         if response.status_code != 200:
             print(f"Failed to fetch markets: {response.status_code}")
+            print(f"Response: {response.text}")
             return []
         
-        all_markets = response.json()
+        data = response.json()
+        all_markets = data if isinstance(data, list) else data.get('data', [])
         
-        if not isinstance(all_markets, list):
-            print("Unexpected API response format")
-            return []
+        print(f"Found {len(all_markets)} total markets")
         
-        print(f"Retrieved {len(all_markets)} active markets from Polymarket")
-        
-        # Filter for tradable markets (with CLOB token IDs)
-        tradable_markets = [
-            market for market in all_markets 
-            if market.get("clobTokenIds") and len(market.get("clobTokenIds", [])) > 0
-        ]
-        
-        # Filter out old/resolved markets by checking end date
-        import datetime
-        current_time = datetime.datetime.now()
-        
+        # Filter for currently active markets with good volume
         current_markets = []
-        for market in tradable_markets:
-            end_date_str = market.get("endDate")
-            if end_date_str:
-                try:
-                    # Parse the end date
-                    end_date = datetime.datetime.fromisoformat(end_date_str.replace("Z", "+00:00"))
-                    # Only include markets that end in the future or recently (within 30 days)
-                    days_diff = (end_date - current_time).days
-                    if days_diff > -30:  # Not older than 30 days
-                        current_markets.append(market)
-                except:
-                    # If we can't parse the date, include it anyway
-                    current_markets.append(market)
-            else:
-                # If no end date, include it
-                current_markets.append(market)
+        import datetime
+        current_time = datetime.datetime.now(datetime.timezone.utc)
         
-        print(f"Found {len(current_markets)} current/active tradable markets")
-        return current_markets
+        for market in all_markets:
+            try:
+                # Check if market is truly active
+                active = market.get("active", False)
+                accepting_orders = market.get("accepting_orders", False)
+                volume = float(market.get("volume", 0))
+                end_date_str = market.get("end_date", "")
+                question = market.get("question", "Unknown")
+                
+                # Skip if not active or not accepting orders
+                if not active or not accepting_orders:
+                    continue
+                
+                # Skip markets with very low volume (less than $1000)
+                if volume < 1000:
+                    continue
+                
+                # Check if market hasn't ended yet
+                if end_date_str:
+                    try:
+                        end_date = datetime.datetime.fromisoformat(end_date_str.replace("Z", "+00:00"))
+                        if end_date <= current_time:
+                            continue
+                    except:
+                        pass
+                
+                print(f"Active Market: {question[:60]}...")
+                print(f"  Volume: ${volume:,.2f}")
+                print(f"  End Date: {end_date_str}")
+                print(f"  Accepting Orders: {accepting_orders}")
+                
+                current_markets.append(market)
+                
+            except Exception as e:
+                print(f"Error processing market: {e}")
+                continue
+        
+        print(f"Found {len(current_markets)} active markets with good volume")
+        
+        # Sort by volume (highest first)
+        current_markets.sort(key=lambda x: float(x.get("volume", 0)), reverse=True)
+        
+        return current_markets[:20]  # Return top 20 by volume
         
     except Exception as e:
         print(f"Error fetching markets: {e}")
@@ -311,144 +329,38 @@ def find_best_market() -> Tuple[Optional[Dict[str, Any]], Optional[str], Optiona
     
     print(f"Checking {len(all_markets)} markets for trading opportunities...")
     
-    # Strategy 1: Try to find markets with active order books
-    best_market = None
-    best_liquidity = 0
-    best_outcome = None
-    best_token_id = None
-    
-    # Check first 20 markets for order books (to avoid rate limiting)
-    for i, market in enumerate(all_markets[:20]):
-        print(f"Checking market {i+1}/20: {market.get('question', 'Unknown')[:50]}...")
-            
-        token_ids = parse_token_ids(market)
-        outcomes = parse_outcomes(market)
-        
-        if not token_ids or not outcomes or len(token_ids) != len(outcomes):
-            continue
-        
-        for j, token_id in enumerate(token_ids):
-            order_book = get_order_book(token_id)
-            
-            if not order_book:
-                continue
-                
-            # Check for bids and asks
-            bids = order_book.get("bids", [])
-            asks = order_book.get("asks", [])
-            
-            if not bids or not asks:
-                continue
-            
-            # Calculate liquidity score
-            try:
-                best_bid = float(bids[0]["price"])
-                best_ask = float(asks[0]["price"])
-                
-                spread = best_ask - best_bid
-                bid_volume = sum(float(bid["size"]) for bid in bids[:3])
-                ask_volume = sum(float(ask["size"]) for ask in asks[:3])
-                
-                if spread > 0:
-                    liquidity_score = (bid_volume + ask_volume) / spread
-                else:
-                    liquidity_score = bid_volume + ask_volume
-                
-                if liquidity_score > best_liquidity:
-                    best_liquidity = liquidity_score
-                    best_market = market
-                    best_outcome = outcomes[j]
-                    best_token_id = token_id
-                    
-                    print(f"✅ Found liquid market: {market.get('question', 'Unknown')[:50]}...")
-                    print(f"Liquidity score: {liquidity_score:.2f}")
-                    
-            except (IndexError, ValueError, KeyError):
-                continue
-    
-    # If we found a liquid market, use it
-    if best_market:
-        print(f"\n✅ Best market selected (with order book):")
-        print(f"Market: {best_market.get('question')}")
-        print(f"Outcome: {best_outcome}")
-        print(f"Liquidity score: {best_liquidity:.2f}")
-        return best_market, best_outcome, best_token_id
-    
-    # Strategy 2: Fallback - use market with highest volume
-    print("\nNo markets with active order books found. Using volume-based selection...")
-    
-    # Sort markets by volume (highest first)
-    volume_markets = []
+    # Find the market with highest volume that has token IDs
     for market in all_markets:
         try:
-            volume = float(market.get("volume", 0))
-            end_date_str = market.get("endDate", "")
             question = market.get("question", "Unknown")
+            volume = float(market.get("volume", 0))
             
-            # Debug: Print market info
-            print(f"Market: {question[:50]}...")
-            print(f"  Volume: ${volume:,.2f}")
-            print(f"  End Date: {end_date_str}")
+            # Get token IDs - try different field names based on API structure
+            token_ids = market.get("clob_token_ids", [])
+            if not token_ids:
+                token_ids = market.get("clobTokenIds", [])
+            if not token_ids:
+                token_ids = market.get("tokenIds", [])
             
-            # Skip markets with very old dates or resolved markets
-            if end_date_str:
-                try:
-                    import datetime
-                    end_date = datetime.datetime.fromisoformat(end_date_str.replace("Z", "+00:00"))
-                    current_time = datetime.datetime.now(datetime.timezone.utc)
-                    days_diff = (end_date - current_time).days
-                    
-                    print(f"  Days until end: {days_diff}")
-                    
-                    # Skip markets that ended more than 7 days ago
-                    if days_diff < -7:
-                        print(f"  ❌ Skipping old market (ended {abs(days_diff)} days ago)")
-                        continue
-                except Exception as e:
-                    print(f"  ⚠️  Date parsing error: {e}")
-            
-            # Skip markets with certain keywords that indicate old events
-            old_keywords = ["2020", "2021", "2022", "2023", "Biden", "Trump win", "election"]
-            if any(keyword in question for keyword in old_keywords):
-                print(f"  ❌ Skipping likely old market (contains old keywords)")
+            if not token_ids or len(token_ids) < 2:
+                print(f"Skipping market '{question[:50]}...' - no token IDs available")
                 continue
             
-            if volume > 0:
-                volume_markets.append((market, volume))
-                print(f"  ✅ Added to candidates")
-            else:
-                print(f"  ❌ No volume")
-                
+            print(f"✅ Selected market: {question}")
+            print(f"   Volume: ${volume:,.2f}")
+            print(f"   Token IDs: {token_ids}")
+            
+            # For binary markets, choose "Yes" outcome (first token)
+            outcome = "Yes"
+            token_id = token_ids[0]
+            
+            return market, outcome, token_id
+            
         except Exception as e:
-            print(f"  ❌ Error processing market: {e}")
+            print(f"Error processing market: {e}")
             continue
     
-    if not volume_markets:
-        print("No markets with volume data found")
-        return None, None, None
-    
-    # Sort by volume
-    volume_markets.sort(key=lambda x: x[1], reverse=True)
-    
-    # Try the top 5 highest volume markets
-    for market, volume in volume_markets[:5]:
-        token_ids = parse_token_ids(market)
-        outcomes = parse_outcomes(market)
-        
-        if token_ids and outcomes and len(token_ids) == len(outcomes):
-            # Use the first outcome (usually "Yes")
-            selected_market = market
-            selected_outcome = outcomes[0]
-            selected_token_id = token_ids[0]
-            
-            print(f"\n✅ Selected high-volume market:")
-            print(f"Market: {selected_market.get('question')}")
-            print(f"Volume: ${volume:,.2f}")
-            print(f"Outcome: {selected_outcome}")
-            
-            return selected_market, selected_outcome, selected_token_id
-    
-    print("No suitable markets found")
+    print("❌ No suitable markets found with token IDs")
     return None, None, None
 
 def place_bet_on_best_market(wallet_address: str, private_key: str, w3: Web3) -> None:
