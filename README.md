@@ -17,7 +17,7 @@ An autonomous AI trading agent for Polymarket that identifies market inefficienc
 source venv/bin/activate
 
 # Run the app
-python3 app.py
+sudo ./venv/bin/python3 app.py
 ### Installation
 
 1. Clone this repository
