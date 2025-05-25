@@ -382,9 +382,45 @@ def find_best_market() -> Tuple[Optional[Dict[str, Any]], Optional[str], Optiona
     for market in all_markets:
         try:
             volume = float(market.get("volume", 0))
+            end_date_str = market.get("endDate", "")
+            question = market.get("question", "Unknown")
+            
+            # Debug: Print market info
+            print(f"Market: {question[:50]}...")
+            print(f"  Volume: ${volume:,.2f}")
+            print(f"  End Date: {end_date_str}")
+            
+            # Skip markets with very old dates or resolved markets
+            if end_date_str:
+                try:
+                    import datetime
+                    end_date = datetime.datetime.fromisoformat(end_date_str.replace("Z", "+00:00"))
+                    current_time = datetime.datetime.now(datetime.timezone.utc)
+                    days_diff = (end_date - current_time).days
+                    
+                    print(f"  Days until end: {days_diff}")
+                    
+                    # Skip markets that ended more than 7 days ago
+                    if days_diff < -7:
+                        print(f"  ❌ Skipping old market (ended {abs(days_diff)} days ago)")
+                        continue
+                except Exception as e:
+                    print(f"  ⚠️  Date parsing error: {e}")
+            
+            # Skip markets with certain keywords that indicate old events
+            old_keywords = ["2020", "2021", "2022", "2023", "Biden", "Trump win", "election"]
+            if any(keyword in question for keyword in old_keywords):
+                print(f"  ❌ Skipping likely old market (contains old keywords)")
+                continue
+            
             if volume > 0:
                 volume_markets.append((market, volume))
-        except:
+                print(f"  ✅ Added to candidates")
+            else:
+                print(f"  ❌ No volume")
+                
+        except Exception as e:
+            print(f"  ❌ Error processing market: {e}")
             continue
     
     if not volume_markets:
