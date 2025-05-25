@@ -14,68 +14,80 @@ An autonomous AI trading agent for Polymarket that identifies market inefficienc
 ### Installation
 
 1. Clone this repository
+
 ```bash
-git clone https://github.com/yourusername/PolyTrader.git
-cd PolyTrader
+git clone https://github.com/crisand/Poly-Trader.git
+cd Poly-Trader
 ```
 
 2. Create a virtual environment
+
 ```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+python3 -m venv venv
+
+# Activate virtual environment
+source venv/bin/activate
+
+# Upgrade pip
+pip install --upgrade pip
 ```
 
 3. Install dependencies
+
 ```bash
 pip install -r requirements.txt
 ```
 
 4. Set up environment variables
+
 ```bash
 cp .env.example .env
 # Edit .env with your API keys and configuration
 ```
 
 5. Run the application
+
 ```bash
-python app.py
+python3 app.py
 ```
 
 6. Visit http://127.0.0.1:5000 in your browser
 
 ## 📋 Features
 
-* **Market Analysis:** Continuously scans Polymarket for opportunities
-* **AI-Powered Predictions:** Uses ChatGPT to analyze various events
-* **Edge Detection:** Compares AI predictions with market consensus to find inefficiencies
-* **Intelligent Bet Sizing:** Implements Kelly Criterion for optimal bankroll management
-* **Automated Execution:** Places trades via Polymarket Agents SDK
-* **Risk Management:** Includes safety features to protect your bankroll
+- **Market Analysis:** Continuously scans Polymarket for opportunities
+- **AI-Powered Predictions:** Uses ChatGPT to analyze various events
+- **Edge Detection:** Compares AI predictions with market consensus to find inefficiencies
+- **Intelligent Bet Sizing:** Implements Kelly Criterion for optimal bankroll management
+- **Automated Execution:** Places trades via Polymarket Agents SDK
+- **Risk Management:** Includes safety features to protect your bankroll
 
 ## 🏗️ Architecture
 
 The system consists of three core modules:
 
-1. **Analysis Module**  
-   * Uses ChatGPT to analyze upcoming events  
-   * Compares predictions with current Polymarket odds  
-   * Identifies opportunities with significant edge
+1. **Analysis Module**
 
-2. **Decision Module**  
-   * Evaluates opportunities based on edge percentage  
-   * Calculates optimal bet size using Kelly Criterion  
-   * Manages risk to preserve bankroll
+   - Uses ChatGPT to analyze upcoming events
+   - Compares predictions with current Polymarket odds
+   - Identifies opportunities with significant edge
 
-3. **Execution Module**  
-   * Connects to Polymarket using their official Agents SDK  
-   * Places trades automatically with verification  
-   * Implements safety measures and error handling
+2. **Decision Module**
+
+   - Evaluates opportunities based on edge percentage
+   - Calculates optimal bet size using Kelly Criterion
+   - Manages risk to preserve bankroll
+
+3. **Execution Module**
+   - Connects to Polymarket using their official Agents SDK
+   - Places trades automatically with verification
+   - Implements safety measures and error handling
 
 ## ⚙️ Configuration
 
 Edit your `.env` file with the following variables:
 
-```
+```bash
 # OpenAI API key (required for AI functionality)
 OPENAI_API_KEY=your_openai_api_key_here
 
@@ -103,16 +115,19 @@ MIN_EDGE_PERCENTAGE=0.15
 ## 🚀 Usage
 
 Start the web interface:
+
 ```bash
 python app.py
 ```
 
 Run in simulation mode (no real trades):
+
 ```bash
 python app.py --simulation
 ```
 
 Analyze specific markets:
+
 ```bash
 python polymarket_ai_search.py --query "NBA games tonight"
 ```
@@ -123,10 +138,10 @@ Trading involves substantial risk and is not suitable for all investors. Past pe
 
 ## 🔍 Main Files
 
-* `app.py` - Main entry point for the Flask application
-* `polymarket_ai_search.py` - Search and analysis of Polymarket events
-* `place_polymarket_bet.py` - Automated bet execution
-* `fetch_current_markets.py` - Real-time market data retrieval
+- `app.py` - Main entry point for the Flask application
+- `polymarket_ai_search.py` - Search and analysis of Polymarket events
+- `place_polymarket_bet.py` - Automated bet execution
+- `fetch_current_markets.py` - Real-time market data retrieval
 
 ## 📝 License
 
@@ -138,9 +153,9 @@ Siraj Raval
 
 ## 🙏 Acknowledgements
 
-* OpenAI for ChatGPT API
-* Polymarket team for the Agents SDK
-* All contributors and testers
+- OpenAI for ChatGPT API
+- Polymarket team for the Agents SDK
+- All contributors and testers
 
 ---
 

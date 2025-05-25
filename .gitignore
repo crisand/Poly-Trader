@@ -23,9 +23,11 @@ var/
 # Virtual Environment
 venv/
 ENV/
+poly.pem
 
 # Environment variables
 .env
+.env.example
 
 # IDE specific files
 .idea/
