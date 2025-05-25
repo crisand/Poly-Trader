@@ -179,3 +179,4 @@ Siraj Raval
 source venv/bin/activate && python3 check_usdc.py
 python3 approve_usdc.py
 python3 place_programmatic_bet.py
+python3 place_polymarket_bet.py

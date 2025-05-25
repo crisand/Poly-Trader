@@ -229,35 +229,66 @@ def place_market_order(
         print(f"Error placing order: {str(e)}")
         return None
 
+def get_all_active_markets() -> List[Dict[str, Any]]:
+    """
+    Fetch ALL active markets from Polymarket (not just sports)
+    """
+    print("Fetching all active markets...")
+    
+    markets_url = "https://gamma-api.polymarket.com/markets"
+    
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36"
+    }
+    
+    params = {
+        "limit": 100,
+        "active": True
+    }
+    
+    try:
+        response = requests.get(markets_url, params=params, headers=headers)
+        
+        if response.status_code != 200:
+            print(f"Failed to fetch markets: {response.status_code}")
+            return []
+        
+        all_markets = response.json()
+        
+        if not isinstance(all_markets, list):
+            print("Unexpected API response format")
+            return []
+        
+        print(f"Retrieved {len(all_markets)} active markets from Polymarket")
+        
+        # Filter for tradable markets (with CLOB token IDs)
+        tradable_markets = [
+            market for market in all_markets 
+            if market.get("clobTokenIds") and len(market.get("clobTokenIds", [])) > 0
+        ]
+        
+        print(f"Found {len(tradable_markets)} tradable markets")
+        return tradable_markets
+        
+    except Exception as e:
+        print(f"Error fetching markets: {e}")
+        return []
+
 def find_best_market() -> Tuple[Optional[Dict[str, Any]], Optional[str], Optional[str]]:
     """
-    Find the best market to bet on (most liquid NBA market)
+    Find the best market to bet on (most liquid market from ALL markets)
     
     Returns:
         Tuple of (market, outcome, token_id)
     """
     print("Finding the best market to bet on...")
     
-    # Get active sports markets
-    sports_markets = get_active_sports_markets()
+    # Get ALL active markets (not just sports)
+    all_markets = get_all_active_markets()
     
-    if not sports_markets:
-        print("No active sports markets found")
+    if not all_markets:
+        print("No active markets found")
         return None, None, None
-    
-    # Filter for NBA markets
-    nba_markets = []
-    for market in sports_markets:
-        question = market.get("question", "").lower()
-        if any(term in question for term in ["nba", "basketball"]):
-            nba_markets.append(market)
-    
-    if not nba_markets:
-        print("No NBA markets found, using general sports markets")
-        filtered_markets = sports_markets
-    else:
-        print(f"Found {len(nba_markets)} NBA markets")
-        filtered_markets = nba_markets
     
     # Find the market with the most liquid order book
     best_market = None
@@ -265,14 +296,19 @@ def find_best_market() -> Tuple[Optional[Dict[str, Any]], Optional[str], Optiona
     best_outcome = None
     best_token_id = None
     
-    for market in filtered_markets:
+    print(f"Checking liquidity for {len(all_markets)} markets...")
+    
+    for i, market in enumerate(all_markets):
+        if i % 10 == 0:  # Progress indicator
+            print(f"Checked {i}/{len(all_markets)} markets...")
+            
         token_ids = parse_token_ids(market)
         outcomes = parse_outcomes(market)
         
         if not token_ids or not outcomes or len(token_ids) != len(outcomes):
             continue
         
-        for i, token_id in enumerate(token_ids):
+        for j, token_id in enumerate(token_ids):
             order_book = get_order_book(token_id)
             
             if not order_book:
@@ -301,24 +337,29 @@ def find_best_market() -> Tuple[Optional[Dict[str, Any]], Optional[str], Optiona
                 if spread > 0:
                     liquidity_score = (bid_volume + ask_volume) / spread
                 else:
-                    liquidity_score = 0
+                    liquidity_score = bid_volume + ask_volume  # Perfect spread
                 
                 # Update best market if this one has better liquidity
                 if liquidity_score > best_liquidity:
                     best_liquidity = liquidity_score
                     best_market = market
-                    best_outcome = outcomes[i]
+                    best_outcome = outcomes[j]
                     best_token_id = token_id
-            except (IndexError, ValueError, KeyError):
+                    
+                    print(f"New best market found: {market.get('question', 'Unknown')[:50]}...")
+                    print(f"Liquidity score: {liquidity_score:.2f}")
+                    
+            except (IndexError, ValueError, KeyError) as e:
                 continue
     
     if best_market:
-        print(f"Best market found: {best_market.get('question')}")
+        print(f"\n✅ Best market selected:")
+        print(f"Market: {best_market.get('question')}")
         print(f"Outcome: {best_outcome}")
-        print(f"Liquidity score: {best_liquidity:.2f}")
+        print(f"Final liquidity score: {best_liquidity:.2f}")
         return best_market, best_outcome, best_token_id
     else:
-        print("No suitable market found")
+        print("No suitable market found with active order books")
         return None, None, None
 
 def place_bet_on_best_market(wallet_address: str, private_key: str, w3: Web3) -> None:
