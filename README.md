@@ -14,6 +14,7 @@ An autonomous AI trading agent for Polymarket that continuously monitors markets
 ### Quick Start on EC2
 
 ```bash
+nano .env
 ssh -i "poly.pem" ubuntu@ec2-34-226-150-183.compute-1.amazonaws.com
 cd ~/Poly-Trader
 git pull origin main

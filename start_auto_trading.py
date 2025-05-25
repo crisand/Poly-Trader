@@ -11,6 +11,22 @@ import sys
 import subprocess
 import time
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+    print("✅ Loaded .env file")
+except ImportError:
+    print("⚠️ python-dotenv not available, trying to install...")
+    try:
+        subprocess.run([sys.executable, "-m", "pip", "install", "python-dotenv"], 
+                     check=True, capture_output=True)
+        from dotenv import load_dotenv
+        load_dotenv()
+        print("✅ Installed and loaded .env file")
+    except:
+        print("❌ Could not load .env file")
+
 def check_dependencies():
     """Check which trading bots are available"""
     available_bots = []
@@ -66,14 +82,17 @@ def check_environment():
     
     missing_vars = []
     for var in required_vars:
-        if not os.getenv(var):
+        value = os.getenv(var)
+        if not value or value == "your_private_key_here":
             missing_vars.append(var)
     
     if missing_vars:
-        print("❌ Missing required environment variables:")
+        print("❌ Missing or invalid environment variables:")
         for var in missing_vars:
-            print(f"   - {var}")
-        print("\nPlease set these in your .env file")
+            current_value = os.getenv(var, "NOT_SET")
+            print(f"   - {var}: {current_value}")
+        print("\n📝 Please edit your .env file and set your actual private key")
+        print("💡 Replace 'your_private_key_here' with your real private key")
         return False
     
     print("✅ Environment variables configured")
