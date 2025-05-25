@@ -16,6 +16,7 @@ An autonomous AI trading agent for Polymarket that continuously monitors markets
 ```bash
 nano .env
 ssh -i "poly.pem" ubuntu@ec2-34-226-150-183.compute-1.amazonaws.com
+ssh -i "plm.pem" ubuntu@ec2-13-211-89-88.ap-southeast-2.compute.amazonaws.com
 cd ~/Poly-Trader
 git pull origin main
 source venv/bin/activate
@@ -26,7 +27,7 @@ python3 place_real_trades.py
 python3 manual_trading.py
 python3 start_auto_trading.py
 python3 real_auto_trader.py
-./start_bot.sh
+./run_bot.sh
 ./stop_bot.sh
 # As mentioned in your README
 ####
