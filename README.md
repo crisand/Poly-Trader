@@ -13,11 +13,15 @@ An autonomous AI trading agent for Polymarket that identifies market inefficienc
   ssh -i "poly.pem" ubuntu@ec2-34-226-150-183.compute-1.amazonaws.com
   cd ~/Poly-Trader
   git pull origin main
+
 # Make sure virtual environment is activated
+
 source venv/bin/activate
 
 # Run the app
+
 sudo ./venv/bin/python3 app.py
+
 ### Installation
 
 1. Clone this repository
@@ -169,3 +173,7 @@ Siraj Raval
 ⭐ Star this repo if you find it useful! Join our Discord community to discuss improvements and share results.
 
 **Note:** This system is for educational purposes. Always do your own research before trading.
+
+# This script automatically finds the best market and places bets
+python3 approve_usdc.py
+python3 place_programmatic_bet.py

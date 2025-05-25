@@ -15,7 +15,7 @@ load_dotenv()
 
 # Constants
 POLYMARKET_EXCHANGE = "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E"  # Polymarket Exchange contract
-USDC_CONTRACT = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"  # USDC on Polygon
+USDC_CONTRACT = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"  # USDC on Polygon
 RPC_URL = "https://polygon-rpc.com"
 CLOB_API_URL = "https://clob.polymarket.com"
 BET_AMOUNT = 1.0  # Fixed bet amount in USDC

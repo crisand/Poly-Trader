@@ -34,7 +34,7 @@ def check_usdc_balance():
         print("Checking USDC balance via direct web3 call...")
         
         # USDC contract address on Polygon
-        usdc_contract = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"
+        usdc_contract = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"
         
         # Polygon RPC URL - using public endpoint
         rpc_url = "https://polygon-rpc.com"

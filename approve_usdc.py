@@ -43,7 +43,7 @@ def approve_usdc_spending():
     print(f"Connected to Polygon network. Chain ID: {w3.eth.chain_id}")
     
     # Define contract addresses
-    usdc_contract = "0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174"  # USDC on Polygon
+    usdc_contract = "0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359"  # USDC on Polygon
     polymarket_exchange = "0x4bFb41d5B3570DeFd03C39a9A4D8dE6Bd8B8982E"  # Polymarket Exchange
     
     # Check USDC balance first
