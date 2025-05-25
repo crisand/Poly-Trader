@@ -264,8 +264,30 @@ def get_all_active_markets() -> List[Dict[str, Any]]:
             if market.get("clobTokenIds") and len(market.get("clobTokenIds", [])) > 0
         ]
         
-        print(f"Found {len(tradable_markets)} tradable markets")
-        return tradable_markets
+        # Filter out old/resolved markets by checking end date
+        import datetime
+        current_time = datetime.datetime.now()
+        
+        current_markets = []
+        for market in tradable_markets:
+            end_date_str = market.get("endDate")
+            if end_date_str:
+                try:
+                    # Parse the end date
+                    end_date = datetime.datetime.fromisoformat(end_date_str.replace("Z", "+00:00"))
+                    # Only include markets that end in the future or recently (within 30 days)
+                    days_diff = (end_date - current_time).days
+                    if days_diff > -30:  # Not older than 30 days
+                        current_markets.append(market)
+                except:
+                    # If we can't parse the date, include it anyway
+                    current_markets.append(market)
+            else:
+                # If no end date, include it
+                current_markets.append(market)
+        
+        print(f"Found {len(current_markets)} current/active tradable markets")
+        return current_markets
         
     except Exception as e:
         print(f"Error fetching markets: {e}")
