@@ -176,7 +176,6 @@ Siraj Raval
 
 # This script automatically finds the best market and places bets
 
+source venv/bin/activate && python3 check_usdc.py
 python3 approve_usdc.py
 python3 place_programmatic_bet.py
-
-source venv/bin/activate && python3 check_usdc.py
